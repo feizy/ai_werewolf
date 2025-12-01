@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git fetch:*)",
+      "Bash(powershell:*)",
+      "WebSearch",
+      "mcp__web-search-prime__webSearchPrime",
+      "SlashCommand(/speckit.specify 001-werewolf-backend 基于已确认的狼人杀游戏规则（3狼3民1预言家1女巫1猎人9人局），使用AgentScope框架开发后端系统。需要包含：1. 游戏房间管理 2. 玩家匹配和身份分配 3. 游戏流程控制（夜晚/白天阶段）4. 角色技能系统（预言家查验、女巫解药毒药、猎人开枪）5. 警长竞选系统 6. 投票系统 7. 游戏胜负判定 8. 实时事件广播 9. 游戏回放功能 10. 与前端WebSocket通信)",
+      "Bash(git remote add:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
