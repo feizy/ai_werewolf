@@ -1,0 +1,1 @@
+"""Test package for werewolf game backend."""
