@@ -6,7 +6,6 @@ from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, Query, Depends, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.compression import CompressionMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer
 from pydantic import BaseModel, Field
@@ -18,8 +17,7 @@ from ..models.player import Player, Role
 from ..models.room import GameRoom, RoomStatus
 from ..models.game import GameSession, GamePhase, Team
 from ..services.ai_manager import AIManager
-from ..services.game_engine import GameEngine
-from ..services.event_service import EventService
+from ..services.ai_game_engine import AIGameEngine
 
 
 # Pydantic models for API
@@ -44,6 +42,8 @@ class RoomResponse(BaseModel):
 class RoomJoin(BaseModel):
     room_id: str
     player_name: str = Field(..., min_length=1, max_length=20)
+    ai_config: Optional[Dict[str, Any]] = Field(default=None, description="AI configuration")
+    model_configuration: Optional[Dict[str, Any]] = Field(default=None, description="Model configuration")
 
 class RoomStatusResponse(BaseModel):
     id: str
@@ -111,10 +111,9 @@ class WerewolfAPI:
         )
 
         self.rooms: Dict[str, GameRoom] = {}
-        self.game_engines: Dict[str, GameEngine] = {}
+        self.game_engines: Dict[str, AIGameEngine] = {}
         self.ai_manager: Optional[AIManager] = None
-        self.event_service: EventService()
-
+        
         self._setup_middleware()
         self._setup_routes()
         self._setup_exception_handlers()
@@ -131,8 +130,7 @@ class WerewolfAPI:
         )
 
         # Compression
-        self.app.add_middleware(CompressionMiddleware)
-
+        
     def _setup_routes(self) -> None:
         """Setup API routes."""
         # Health check
@@ -194,7 +192,7 @@ class WerewolfAPI:
             if not room:
                 raise HTTPException(status_code=404, detail="Room not found")
 
-            if room.is_full():
+            if room.is_full:
                 raise HTTPException(status_code=400, detail="Room is full")
 
             if room.status != RoomStatus.WAITING:
@@ -206,7 +204,8 @@ class WerewolfAPI:
                     name=join_data.player_name,
                     room_id=room_id,
                     position=room.current_players + 1,
-                    ai_config=join_data.ai_config
+                    ai_config=join_data.ai_config,
+                    model_config=join_data.model_configuration
                 )
 
                 if not room.add_player(player):
@@ -219,7 +218,20 @@ class WerewolfAPI:
                     current_players=room.current_players,
                     max_players=room.max_players,
                     status=room.status.value,
-                    players=room.get_players_info()
+                    players=[{
+                "id": p.id,
+                "name": p.name,
+                "room_id": p.room_id,
+                "role": p.role.value if p.role else None,
+                "status": p.status.value,
+                "position": p.position,
+                "connection_state": p.connection_state,
+                "joined_at": p.joined_at,
+                "last_active_at": p.last_active_at,
+                "voting_weight": p.voting_weight,
+                "is_alive": p.is_alive,
+                "team": p.team.value if p.team else None
+            } for p in room.players]
                 )
 
             except ValueError as e:
@@ -261,29 +273,26 @@ class WerewolfAPI:
         @self.app.post("/games/{game_id}/start")
         async def start_game(game_id: str, game_data: GameStart):
             """Start game in room."""
-            # Find room
-            room = None
-            for r in self.rooms.values():
-                if any(engine.get_session() and engine.get_session().room_id == r.id for engine in self.game_engines.values()):
-                    room = r
-                    break
-
+            # Find room by game_id (game_id should be room_id)
+            room = self.rooms.get(game_id)
             if not room:
                 raise HTTPException(status_code=404, detail="Room not found")
 
             # Check if room can start game
-            if not room.can_start_game():
+            if not room.can_start_game:
                 raise HTTPException(status_code=400, detail="Cannot start game: room not ready")
 
             # Find or create game engine
-            game_engine = None
-            for engine in self.game_engines.values():
-                if engine.get_session() and engine.get_session().room_id == room.id:
-                    game_engine = engine
-                    break
-
+            game_engine = self.game_engines.get(game_id)
             if not game_engine:
-                raise HTTPException(status_code=404, detail="Game not found")
+                # Create game engine for this room
+                from ..services.ai_game_engine import AIGameEngine
+                from ..models.events import EventService
+
+                event_service = EventService()
+                game_engine = AIGameEngine(room, event_service)
+                self.game_engines[game_id] = game_engine
+                logger.info(f"Created game engine for room {game_id}")
 
             try:
                 # Start game
@@ -453,17 +462,21 @@ class WerewolfAPI:
         """Setup exception handlers."""
         @self.app.exception_handler(404)
         async def not_found_handler(request, exc):
+            # Safely extract error message
+            error_msg = str(exc.detail) if hasattr(exc, 'detail') else str(exc)
             return JSONResponse(
                 status_code=404,
-                content={"error": "Not Found", "message": str(exc.detail)},
+                content={"error": "Not Found", "message": error_msg},
             )
 
         @self.app.exception_handler(500)
         async def internal_error_handler(request, exc):
             logger.error(f"Internal server error: {exc}")
+            # Safely extract error message
+            error_msg = str(exc.detail) if hasattr(exc, 'detail') else str(exc)
             return JSONResponse(
                 status_code=500,
-                content={"error": "Internal Server Error", "message": str(exc.detail)},
+                content={"error": "Internal Server Error", "message": error_msg},
             )
 
     async def initialize_ai_manager(self) -> None:
@@ -476,14 +489,10 @@ class WerewolfAPI:
             logger.error(f"Failed to initialize AI Manager: {e}")
             raise
 
-    def create_game_engine(self, room: GameRoom) -> GameEngine:
+    def create_game_engine(self, room: GameRoom) -> AIGameEngine:
         """Create and store game engine for room."""
-        if not self.ai_manager:
-            raise RuntimeError("AI Manager not initialized")
-
-        game_engine = GameEngine(
+        game_engine = AIGameEngine(
             room=room,
-            ai_manager=self.ai_manager,
             event_service=self.event_service
         )
 

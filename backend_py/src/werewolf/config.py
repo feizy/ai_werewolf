@@ -23,11 +23,6 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     redis_pool_size: int = 10
 
-    # AgentScope Configuration
-    agentscope_api_key: Optional[str] = None
-    agentscope_base_url: str = "https://api.agentscope.ai"
-    agentscope_model: str = "gpt-4"
-
     # OpenAI Configuration
     openai_api_key: Optional[str] = None
     openai_model: str = "gpt-4"
@@ -62,7 +57,6 @@ class Settings(BaseSettings):
     request_timeout: int = 30
 
     # Development/Testing
-    mock_ai_agents: bool = False
     enable_metrics: bool = True
     enable_profiling: bool = False
 
@@ -78,12 +72,7 @@ class Settings(BaseSettings):
             return v.lower() in ("true", "1", "yes", "on")
         return v
 
-    @validator("mock_ai_agents", pre=True)
-    def parse_mock_ai_agents(cls, v):
-        if isinstance(v, str):
-            return v.lower() in ("true", "1", "yes", "on")
-        return v
-
+    
     @validator("enable_metrics", pre=True)
     def parse_enable_metrics(cls, v):
         if isinstance(v, str):

@@ -6,33 +6,15 @@ import time
 from typing import Dict, List, Optional, Any, Callable
 from datetime import datetime
 
-try:
-    import socketio
-    from fastapi import FastAPI
-    from socketio import ASGIApp
-    AGENTSCOPE_WEBSOCKET_AVAILABLE = True
-except ImportError:
-    AGENTSCOPE_WEBSOCKET_AVAILABLE = False
-
-    # Create mock classes for testing
-    class socketio:
-        class ASGIApp:
-            def __init__(self, *args, **kwargs):
-                pass
-
-        class AsyncServer:
-            def __init__(self, *args, **kwargs):
-                pass
-
-        class cors:
-            def __init__(self, *args, **kwargs):
-                pass
+import socketio
+from fastapi import FastAPI
+from socketio import ASGIApp
 
 from loguru import logger
 
 from ..models.player import Player
 from ..models.room import GameRoom
-from ..services.game_engine import GameEngine
+from ..services.ai_game_engine import AIGameEngine
 from .api import WerewolfAPI
 
 
@@ -44,27 +26,21 @@ class WebSocketManager:
         self.connected_clients: Dict[str, Dict[str, Any]] = {}
         self.room_clients: Dict[str, List[str]] = {}
         self.game_rooms: Dict[str, GameRoom] = {}
-        self.game_engines: Dict[str, GameEngine] = {}
+        self.game_engines: Dict[str, AIGameEngine] = {}
 
         # Create Socket.IO app
-        if AGENTSCOPE_WEBSOCKET_AVAILABLE:
-            self.sio = socketio.AsyncServer(
-                cors_allowed_origins=["http://localhost:3000", "http://localhost:3001"],
-                async_mode='auto',
-                engineio_logger=True,
-                logger=True
-            )
-            self.asgi_app = ASGIApp(self.sio, socketio_path="/socket.io")
-        else:
-            self.sio = None
-            self.asgi_app = None
+        self.sio = socketio.AsyncServer(
+            cors_allowed_origins=["http://localhost:3000", "http://localhost:3001"],
+            async_mode='asgi',
+            engineio_logger=False,
+            logger=False
+        )
+        self.asgi_app = ASGIApp(self.sio, socketio_path="/socket.io")
 
         self._setup_event_handlers()
 
     def _setup_event_handlers(self) -> None:
         """Setup Socket.IO event handlers."""
-        if not self.sio:
-            return
 
         @self.sio.event
         async def connect(sid, environ):
@@ -272,7 +248,8 @@ class WebSocketManager:
             player = Player.create_ai_player(
                 name=join_data.player_name,
                 room_id=room.id,
-                position=room.current_players + 1
+                position=room.current_players + 1,
+                model_config=join_data.model_configuration
             )
 
             if not room.add_player(player):
@@ -594,8 +571,7 @@ class WebSocketManager:
                 logger.error(f"Error stopping game engine: {e}")
 
         # Disconnect all clients
-        if self.sio:
-            await self.sio.disconnect()
+        await self.sio.disconnect()
 
         # Clear data
         self.connected_clients.clear()
@@ -607,9 +583,6 @@ class WebSocketManager:
 
     def create_socketio_app(self) -> ASGIApp:
         """Create Socket.IO ASGI app."""
-        if not AGENTSCOPE_WEBSOCKET_AVAILABLE:
-            raise RuntimeError("WebSocket not available")
-
         return self.asgi_app
 
 

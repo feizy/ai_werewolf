@@ -1,7 +1,7 @@
 """Event models for werewolf game."""
 
 from typing import Any, Dict, List, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 import uuid
 
@@ -12,8 +12,8 @@ from .game import EventType, GamePhase
 class EventVisibility:
     """Event visibility configuration."""
     public: bool = True
-    visible_to_roles: List[str] = []
-    visible_to_players: List[str] = []
+    visible_to_roles: List[str] = field(default_factory=list)
+    visible_to_players: List[str] = field(default_factory=list)
     requires_role_reveal: bool = False
 
 

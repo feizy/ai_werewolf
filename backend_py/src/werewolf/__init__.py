@@ -8,18 +8,22 @@ __version__ = "1.0.0"
 __author__ = "AI Arena Team"
 __email__ = "team@aiarena.dev"
 
-from .core.game import WerewolfGame
 from .models.player import Player, Role, Team
 from .models.room import GameRoom
+from .models.game import GameSession, GamePhase, EventType
 from .services.ai_manager import AIManager
-from .services.game_engine import GameEngine
+from .services.ai_game_engine import AIGameEngine
+from .agents.agent_factory import AgentFactory
 
 __all__ = [
-    "WerewolfGame",
     "Player",
     "Role",
     "Team",
     "GameRoom",
+    "GameSession",
+    "GamePhase",
+    "EventType",
     "AIManager",
-    "GameEngine",
+    "AIGameEngine",
+    "AgentFactory",
 ]

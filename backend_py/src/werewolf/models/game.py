@@ -59,6 +59,9 @@ class EventType(str, Enum):
     # Hunter events
     HUNTER_SHOOT = "hunter_shoot"
 
+    # Role action events
+    ROLE_ACTION = "role_action"
+
 
 @dataclass
 class SheriffState:
@@ -374,6 +377,18 @@ class GameSession:
             return Team.GOOD
 
         return None
+
+    def start_game(self) -> None:
+        """Start the game."""
+        # Add game start event
+        self.add_event(
+            EventType.GAME_START,
+            "游戏开始，所有玩家就位",
+            is_public=True
+        )
+
+        # Create initial daily snapshot
+        self.create_daily_snapshot()
 
     def end_game(self) -> None:
         """End the game."""

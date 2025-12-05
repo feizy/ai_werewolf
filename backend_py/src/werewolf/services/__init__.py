@@ -1,7 +1,6 @@
 """Werewolf game services."""
 
 from .ai_manager import AIManager
-from .game_engine import GameEngine
-from .event_service import EventService
+from .ai_game_engine import AIGameEngine
 
-__all__ = ["AIManager", "GameEngine", "EventService"]
+__all__ = ["AIManager", "AIGameEngine"]

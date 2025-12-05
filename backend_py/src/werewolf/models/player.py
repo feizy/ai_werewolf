@@ -30,6 +30,7 @@ class PersonalityType(str, Enum):
     CAUTIOUS = "cautious"
     LEADER = "leader"
     FOLLOWER = "follower"
+    LOGICAL = "logical"
 
 
 class SkillLevel(str, Enum):
@@ -83,7 +84,7 @@ class RoleAbilities:
 class AIConfig:
     """AI player configuration."""
     agent_type: str = "werewolf_player"
-    personality: PersonalityType = PersonalityType.BALANCED
+    personality: PersonalityType = PersonalityType.ANALYTICAL
     skill_level: SkillLevel = SkillLevel.INTERMEDIATE
     response_time: ResponseTime = ResponseTime.NORMAL
     strategy: StrategyType = StrategyType.LOGICAL
@@ -91,6 +92,7 @@ class AIConfig:
     creativity_level: float = 0.5  # 0-1
     aggressiveness: float = 0.5     # 0-1
     cooperation: float = 0.5        # 0-1
+    model_config: Dict[str, Any] = field(default_factory=dict)
 
 
 class PlayerStatus(str, Enum):
@@ -310,14 +312,21 @@ class Player:
         room_id: str,
         position: int,
         role: Optional[Role] = None,
-        ai_config: Optional[Dict[str, Any]] = None
+        ai_config: Optional[Dict[str, Any]] = None,
+        model_config: Optional[Dict[str, Any]] = None
     ) -> "Player":
-        """Create AI player with optional role and AI config."""
+        """Create AI player with optional role, AI config, and model config."""
+        ai_config_dict = ai_config or {}
+        model_config_dict = model_config or {}
+
+        # Add model_config to ai_config
+        ai_config_dict["model_config"] = model_config_dict
+
         player = cls(
             name=name,
             room_id=room_id,
             position=position,
-            ai_config=AIConfig(**(ai_config or {}))
+            ai_config=AIConfig(**ai_config_dict)
         )
 
         if role:
