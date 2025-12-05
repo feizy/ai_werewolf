@@ -271,7 +271,7 @@ class WerewolfAPI:
             return game_engine.get_game_summary()
 
         @self.app.post("/games/{game_id}/start")
-        async def start_game(game_id: str, game_data: GameStart):
+        async def start_game(game_id: str):
             """Start game in room."""
             # Find room by game_id (game_id should be room_id)
             room = self.rooms.get(game_id)

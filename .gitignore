@@ -3,4 +3,4 @@ __pycache__/
 .pytest_cache/
 
 #把/backend_py/.env文件添加到gitignore
-/backend_py/.env
+*.env

@@ -25,7 +25,12 @@
       "Bash(cmd /c \"venv\\Scripts\\activate && set PYTHONPATH=src && python ultimate_ai_battle.py\")",
       "Bash(venv/Scripts/pip:*)",
       "Bash(taskkill:*)",
-      "Bash(cmd:*)"
+      "Bash(cmd:*)",
+      "Bash(for i in {4..9})",
+      "Bash(do:*)",
+      "Bash(echo:*)",
+      "Bash(done)",
+      "Bash(for:*)"
     ],
     "deny": [],
     "ask": []

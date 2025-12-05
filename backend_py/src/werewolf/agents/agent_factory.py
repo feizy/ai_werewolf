@@ -34,7 +34,7 @@ class AgentFactory:
         model_config = getattr(player.ai_config, 'model_config', {})
 
         try:
-            agent_class = self._agent_classes.get(player.role, VillagerReactAgent)
+            agent_class = cls._agent_classes.get(player.role, VillagerReactAgent)
 
             agent = agent_class(
                 player_id=player.id,
