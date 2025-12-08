@@ -295,7 +295,7 @@ class GameSessionCRUD(BaseCRUD):
                 session.phase_start_time = datetime.utcnow()
                 session.updated_at = datetime.utcnow()
 
-                if phase == GamePhase.DAY and session.day_count == 1:
+                if phase == GamePhase.DAY_DISCUSSION and session.day_count == 1:
                     session.started_at = datetime.utcnow()
 
                 db.commit()

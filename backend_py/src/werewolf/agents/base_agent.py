@@ -12,7 +12,7 @@ from agentscope.model import AnthropicChatModel
 from agentscope.formatter import AnthropicChatFormatter
 from loguru import logger
 from ..models.player import Role, PersonalityType, SkillLevel
-
+from agentscope.memory import InMemoryMemory
 
 @dataclass
 class GameState:
@@ -50,7 +50,7 @@ class AgentAction:
             self.metadata = {}
 
 
-class BaseGameAgent(ReActAgent):
+class BaseGameAgent(ABC):
     """Base class for game agents using AgentScope."""
 
     def __init__(
@@ -88,9 +88,14 @@ class BaseGameAgent(ReActAgent):
 
             # Use provided model or create default one
             if not model:
+                # Extract model_name as positional argument (required by AnthropicChatModel)
+                model_name = self.model_config.pop("model_name", "glm-4.6")
                 model = AnthropicChatModel(
+                    model_name,  # First positional argument
                     **self.model_config
                 )
+                # Restore model_name to config
+                self.model_config["model_name"] = model_name
 
             # Create the AgentScope agent
             self.agent = ReActAgent(
@@ -99,9 +104,8 @@ class BaseGameAgent(ReActAgent):
                 model=model,
                 formatter=AnthropicChatFormatter(),
                 max_iters=3,
-                parallel_tool_calls=False,
-                memory=True,
-                enable_monitor=True
+                memory=InMemoryMemory(),
+                parallel_tool_calls=False
             )
 
             self.is_initialized = True
@@ -261,10 +265,26 @@ class BaseGameAgent(ReActAgent):
                 content=prompt
             )
 
-            # Get response from AgentScope agent
+            # Get response from AgentScope agent (await if it's a coroutine)
             response = self.agent(msg)
+            if hasattr(response, '__await__'):
+                response = await response
 
-            return response.text if hasattr(response, 'text') else str(response)
+            # Extract content from response
+            content = response.content if hasattr(response, 'content') else str(response)
+            
+            # Handle list content (AgentScope may return list of messages)
+            if isinstance(content, list):
+                # Join list items or get text from first item
+                if len(content) > 0:
+                    if isinstance(content[0], dict):
+                        content = content[0].get('text', str(content[0]))
+                    else:
+                        content = '\n'.join(str(item) for item in content)
+                else:
+                    content = ""
+            
+            return str(content)
 
         except Exception as e:
             logger.error(f"Error querying AgentScope agent {self.name}: {e}")
@@ -273,9 +293,25 @@ class BaseGameAgent(ReActAgent):
     def _parse_agent_response(self, response: str) -> AgentAction:
         """Parse agent response into AgentAction."""
         try:
+            # Extract JSON from markdown code block if present
+            json_str = response.strip()
+            
+            # Handle ```json ... ``` blocks
+            if '```json' in json_str:
+                start = json_str.find('```json') + 7
+                end = json_str.find('```', start)
+                if end != -1:
+                    json_str = json_str[start:end].strip()
+            elif '```' in json_str:
+                # Handle ``` ... ``` blocks without language tag
+                start = json_str.find('```') + 3
+                end = json_str.find('```', start)
+                if end != -1:
+                    json_str = json_str[start:end].strip()
+            
             # Try to parse as JSON
-            if response.strip().startswith('{'):
-                data = json.loads(response)
+            if json_str.startswith('{'):
+                data = json.loads(json_str)
 
                 return AgentAction(
                     action_type=data.get("action_type", "unknown"),

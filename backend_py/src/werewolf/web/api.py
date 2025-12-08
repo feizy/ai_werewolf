@@ -16,6 +16,7 @@ from loguru import logger
 from ..models.player import Player, Role
 from ..models.room import GameRoom, RoomStatus
 from ..models.game import GameSession, GamePhase, Team
+from ..models.events import EventService
 from ..services.ai_manager import AIManager
 from ..services.ai_game_engine import AIGameEngine
 
@@ -113,6 +114,7 @@ class WerewolfAPI:
         self.rooms: Dict[str, GameRoom] = {}
         self.game_engines: Dict[str, AIGameEngine] = {}
         self.ai_manager: Optional[AIManager] = None
+        self.event_service: EventService = EventService()
         
         self._setup_middleware()
         self._setup_routes()

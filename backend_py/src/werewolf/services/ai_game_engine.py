@@ -100,74 +100,193 @@ class AIGameEngine:
 
         await self._transition_to_phase(GamePhase.NIGHT)
 
-        # Get agents who act at night
-        night_agents = self._get_night_agents()
-
-        # Process night actions in order
-        for agent_info in night_agents:
-            await self._process_night_action(agent_info)
+        # Night actions in order:
+        # 1. Werewolves discuss and vote on kill target
+        await self._process_werewolf_night()
+        
+        # 2. Seer checks one player
+        await self._process_seer_night()
+        
+        # 3. Witch decides to save/poison (knows werewolf target)
+        await self._process_witch_night()
 
         # Transition to day phase
         await self._start_day_phase()
 
-    def _get_night_agents(self) -> List[Dict[str, Any]]:
-        """Get agents who act during night phase in order."""
-        night_order = [Role.WEREWOLF, Role.SEER, Role.WITCH]
-        night_agents = []
-
-        for role in night_order:
-            role_agents = [
-                agent for agent_id, agent in self.agents.items()
-                if agent.role == role and self._is_player_alive(agent_id)
-            ]
-
-            for agent in role_agents:
-                night_agents.append({
-                    "id": agent.player_id,
-                    "agent": agent,
-                    "role": role,
-                    "available_actions": self._get_night_actions_for_role(role)
-                })
-
-        return night_agents
-
-    async def _process_night_action(self, agent_info: Dict[str, Any]) -> None:
-        """Process night action for an agent."""
-        agent_id = agent_info["id"]
-        agent = agent_info["agent"]
-        role = agent_info["role"]
-        available_actions = agent_info["available_actions"]
-
+    async def _process_werewolf_night(self) -> None:
+        """Process werewolf night phase - brief discussion, leader decides."""
+        werewolf_agents = [
+            agent for agent_id, agent in self.agents.items()
+            if agent.role == Role.WEREWOLF and self._is_player_alive(agent_id)
+        ]
+        
+        if not werewolf_agents:
+            return
+        
+        logger.info("🐺 狼人睁眼，开始商议击杀目标")
+        print("[狼人夜晚] 狼人睁眼，开始商议")
+        
+        # Get non-werewolf alive players as potential targets
+        potential_targets = [
+            p for p in self.room.players 
+            if p.status == PlayerStatus.ALIVE and p.role != Role.WEREWOLF
+        ]
+        
+        # Each werewolf shares a brief opinion (one round)
+        suggestions = []
+        for agent in werewolf_agents:
+            try:
+                game_state = await self._create_game_state(agent.player_id)
+                game_state.known_info["potential_targets"] = [
+                    {"position": p.position, "name": p.name} 
+                    for p in potential_targets
+                ]
+                
+                action = await agent.make_decision(game_state, ["werewolf_discuss"])
+                
+                if action.target:
+                    target_player = self._get_player_by_id(action.target)
+                    if target_player:
+                        suggestions.append(target_player.name)
+                        logger.info(f"🐺 {agent.name} 建议击杀: {target_player.name}")
+                        print(f"[狼人] {agent.name} 建议击杀: {target_player.name}")
+                    
+            except Exception as e:
+                logger.error(f"Error in werewolf discussion for {agent.name}: {e}")
+        
+        # First werewolf (leader) makes final decision
+        leader = werewolf_agents[0]
         try:
-            logger.info(f"Processing night action for {role.value}: {agent.name}")
-
-            # Create game state for agent
-            game_state = await self._create_game_state(agent_id)
-
-            # Get AI decision
-            action = await agent.make_decision(game_state, available_actions)
-
-            # Execute action
-            await self._execute_agent_action(agent_id, action, GamePhase.NIGHT)
-
-            # Record action event
-            await self._record_agent_action(agent_id, action, GamePhase.NIGHT)
-
+            game_state = await self._create_game_state(leader.player_id)
+            game_state.known_info["teammate_suggestions"] = suggestions
+            game_state.known_info["potential_targets"] = [
+                {"position": p.position, "name": p.name} 
+                for p in potential_targets
+            ]
+            
+            action = await leader.make_decision(game_state, ["werewolf_kill"])
+            
+            if action.target:
+                target_player = self._get_player_by_id(action.target)
+                if target_player and target_player.role != Role.WEREWOLF:
+                    logger.info(f"🐺 狼人决定击杀: {target_player.name}")
+                    print(f"[狼人击杀] 狼人决定击杀: {target_player.name}")
+                    
+                    self.session.night_actions.werewolf_target = {
+                        "player_id": target_player.id,
+                        "player_name": target_player.name
+                    }
+                    
         except Exception as e:
-            logger.error(f"Error processing night action for {agent.name}: {e}")
+            logger.error(f"Error in werewolf kill decision: {e}")
+    
+    async def _process_seer_night(self) -> None:
+        """Process seer night action."""
+        seer_agents = [
+            agent for agent_id, agent in self.agents.items()
+            if agent.role == Role.SEER and self._is_player_alive(agent_id)
+        ]
+        
+        for agent in seer_agents:
+            try:
+                logger.info(f"🔮 预言家 {agent.name} 睁眼查验")
+                print(f"[预言家] {agent.name} 睁眼查验")
+                
+                game_state = await self._create_game_state(agent.player_id)
+                action = await agent.make_decision(game_state, ["seer_check"])
+                
+                if action.target:
+                    await self._execute_seer_check(agent.player_id, action.target)
+                    
+            except Exception as e:
+                logger.error(f"Error in seer check for {agent.name}: {e}")
+    
+    async def _process_witch_night(self) -> None:
+        """Process witch night action."""
+        witch_agents = [
+            agent for agent_id, agent in self.agents.items()
+            if agent.role == Role.WITCH and self._is_player_alive(agent_id)
+        ]
+        
+        for agent in witch_agents:
+            try:
+                logger.info(f"🧪 女巫 {agent.name} 睁眼")
+                print(f"[女巫] {agent.name} 睁眼")
+                
+                game_state = await self._create_game_state(agent.player_id)
+                
+                # Witch knows who was killed by werewolves
+                werewolf_target = self.session.night_actions.werewolf_target
+                if werewolf_target:
+                    game_state.known_info["werewolf_kill_target"] = {
+                        "player_id": werewolf_target["player_id"],
+                        "player_name": werewolf_target["player_name"]
+                    }
+                    logger.info(f"🧪 女巫得知 {werewolf_target['player_name']} 被狼人击杀")
+                    print(f"[女巫] 得知 {werewolf_target['player_name']} 被狼人击杀")
+                
+                # Check witch abilities
+                player = self._get_player_by_id(agent.player_id)
+                game_state.known_info["has_antidote"] = player.role_abilities.witch_has_antidote if player else False
+                game_state.known_info["has_poison"] = player.role_abilities.witch_has_poison if player else False
+                
+                # Can self-save only on first night
+                can_self_save = self.day_count == 1 and werewolf_target and werewolf_target["player_id"] == agent.player_id
+                game_state.known_info["can_self_save"] = can_self_save
+                
+                action = await agent.make_decision(game_state, ["witch_save", "witch_poison", "wait"])
+                
+                if action.action_type == "witch_save" and game_state.known_info.get("has_antidote"):
+                    # Save the werewolf target
+                    if werewolf_target:
+                        self.session.night_actions.witch_save = True
+                        if player:
+                            player.role_abilities.witch_has_antidote = False
+                        logger.info(f"🧪 女巫使用解药救了 {werewolf_target['player_name']}")
+                        print(f"[女巫解药] 女巫救了 {werewolf_target['player_name']}")
+                        
+                elif action.action_type == "witch_poison" and action.target and game_state.known_info.get("has_poison"):
+                    # Poison someone
+                    target_player = self._get_player_by_id(action.target)
+                    if target_player:
+                        self.session.night_actions.witch_poison_target = {
+                            "player_id": target_player.id,
+                            "player_name": target_player.name
+                        }
+                        if player:
+                            player.role_abilities.witch_has_poison = False
+                        logger.info(f"🧪 女巫使用毒药毒死 {target_player.name}")
+                        print(f"[女巫毒药] 女巫毒死 {target_player.name}")
+                else:
+                    logger.info(f"🧪 女巫选择不使用药水")
+                    print(f"[女巫] 女巫选择不使用药水")
+                    
+            except Exception as e:
+                logger.error(f"Error in witch action for {agent.name}: {e}")
 
     async def _start_day_phase(self) -> None:
         """Start day phase."""
         logger.info(f"Starting day phase, day {self.day_count}")
 
-        await self._transition_to_phase(GamePhase.DAY)
-
-        # Process night results
-        await self._process_night_results()
+        # Process night results first (determine who died)
+        night_deaths = await self._process_night_results()
 
         # Check for game end
         if await self._check_game_end():
             return
+
+        # Announce night deaths
+        await self._announce_night_deaths(night_deaths)
+
+        # Dead players give last words
+        for death in night_deaths:
+            await self._process_last_words(death["player_id"], "夜晚死亡")
+
+        # Sheriff election (only on day 1)
+        if self.day_count == 1:
+            await self._process_sheriff_election()
+
+        await self._transition_to_phase(GamePhase.DAY_DISCUSSION)
 
         # Day discussion phase
         await self._process_day_discussion()
@@ -184,7 +303,8 @@ class AIGameEngine:
             if self._is_player_alive(agent_id)
         ]
 
-        discussion_rounds = 3  # Each agent speaks 3 times
+        # Standard werewolf rules: 1 round of discussion per day
+        discussion_rounds = 1
 
         for round_num in range(discussion_rounds):
             logger.info(f"Discussion round {round_num + 1}")
@@ -198,7 +318,7 @@ class AIGameEngine:
                         await self._process_speech(agent.player_id, action.content)
 
                         # Small delay between speeches
-                        await asyncio.sleep(1)
+                        await asyncio.sleep(0.5)
 
                 except Exception as e:
                     logger.error(f"Error in speech for {agent.name}: {e}")
@@ -220,7 +340,7 @@ class AIGameEngine:
             event_type=EventType.PLAYER_SPEECH,
             content=f"{player.name}: {content}",
             actor_id=player_id,
-            phase=GamePhase.DAY,
+            phase=GamePhase.DAY_DISCUSSION,
             day_number=self.day_count,
             data={"speech_content": content}
         )
@@ -282,24 +402,59 @@ class AIGameEngine:
     async def _process_voting_results(self, votes: Dict[str, str]) -> None:
         """Process voting results and eliminate player."""
         if not votes:
+            logger.info("⚖️ 无人投票，无人被放逐")
+            print("[投票结果] 无人投票，无人被放逐")
+            # Continue to next night
+            if not await self._check_game_end():
+                self.day_count += 1
+                await self._start_night_phase()
             return
 
         # Count votes
         vote_counts = {}
         for target_id in votes.values():
-            vote_counts[target_id] = vote_counts.get(target_id, 0) + 1
+            # Resolve target to player ID
+            target_player = self._get_player_by_id(target_id)
+            if target_player:
+                actual_id = target_player.id
+                vote_counts[actual_id] = vote_counts.get(actual_id, 0) + 1
 
         if not vote_counts:
+            if not await self._check_game_end():
+                self.day_count += 1
+                await self._start_night_phase()
             return
+
+        # Display vote counts
+        logger.info("⚖️ 投票统计:")
+        print("[投票统计]")
+        for player_id, count in vote_counts.items():
+            player = self._get_player_by_id(player_id)
+            if player:
+                logger.info(f"  {player.name}: {count} 票")
+                print(f"  {player.name}: {count} 票")
 
         # Find player with most votes
         eliminated_id = max(vote_counts.keys(), key=lambda k: vote_counts[k])
         eliminated_player = self._get_player_by_id(eliminated_id)
+        max_votes = vote_counts[eliminated_id]
 
-        if eliminated_player and vote_counts[eliminated_id] > len(votes) // 2:
+        # Check for tie
+        tied_players = [pid for pid, count in vote_counts.items() if count == max_votes]
+        if len(tied_players) > 1:
+            logger.info("⚖️ 平票，无人被放逐")
+            print("[投票结果] 平票，无人被放逐")
+            # TODO: Could add PK round here
+        elif eliminated_player and max_votes > 0:
+            logger.info(f"⚖️ {eliminated_player.name} 被放逐出局")
+            print(f"[投票结果] {eliminated_player.name} 被放逐出局")
+            
+            # Last words before elimination
+            await self._process_last_words(eliminated_id, "投票放逐")
+            
             await self._eliminate_player(eliminated_id, "投票出局")
 
-            # Check for hunter ability
+            # Check for hunter ability (hunter can shoot when voted out)
             if eliminated_player.role == Role.HUNTER:
                 await self._process_hunter_shot(eliminated_id)
 
@@ -442,16 +597,162 @@ class AIGameEngine:
                 data={"action": "shoot"}
             )
 
-    async def _process_night_results(self) -> None:
-        """Process night phase results."""
+    async def _process_night_results(self) -> List[Dict[str, Any]]:
+        """Process night phase results. Returns list of deaths."""
+        night_deaths = []
+        
         # Check werewolf kill
         werewolf_target = self.session.night_actions.werewolf_target
         if werewolf_target:
             target_id = werewolf_target["player_id"]
+            target_name = werewolf_target["player_name"]
 
             # Check if witch saved the target
-            if not self.session.night_actions.witch_save:
+            if self.session.night_actions.witch_save:
+                logger.info(f"🧪 女巫使用解药救活了 {target_name}")
+                print(f"[女巫解药] {target_name} 被救活")
+            else:
                 await self._eliminate_player(target_id, "狼人击杀")
+                night_deaths.append({
+                    "player_id": target_id,
+                    "player_name": target_name,
+                    "cause": "狼人击杀"
+                })
+        
+        # Check witch poison
+        if hasattr(self.session.night_actions, 'witch_poison_target') and self.session.night_actions.witch_poison_target:
+            poison_target = self.session.night_actions.witch_poison_target
+            await self._eliminate_player(poison_target["player_id"], "女巫毒杀")
+            night_deaths.append({
+                "player_id": poison_target["player_id"],
+                "player_name": poison_target["player_name"],
+                "cause": "女巫毒杀"
+            })
+        
+        # Reset night actions for next night
+        self.session.night_actions.werewolf_target = None
+        self.session.night_actions.witch_save = False
+        if hasattr(self.session.night_actions, 'witch_poison_target'):
+            self.session.night_actions.witch_poison_target = None
+        
+        return night_deaths
+    
+    async def _announce_night_deaths(self, deaths: List[Dict[str, Any]]) -> None:
+        """Announce night deaths."""
+        if not deaths:
+            logger.info("☀️ 昨晚是平安夜，无人死亡")
+            print("[天亮] 昨晚是平安夜，无人死亡")
+            await self.event_service.record_event(
+                session_id=self.session.id,
+                event_type=EventType.DEATH_ANNOUNCE,
+                content="昨晚是平安夜，无人死亡",
+                phase=GamePhase.DAY_DISCUSSION,
+                day_number=self.day_count
+            )
+        else:
+            names = ", ".join([d["player_name"] for d in deaths])
+            logger.info(f"☀️ 天亮了，昨晚死亡: {names}")
+            print(f"[天亮] 昨晚死亡: {names}")
+            await self.event_service.record_event(
+                session_id=self.session.id,
+                event_type=EventType.DEATH_ANNOUNCE,
+                content=f"昨晚死亡: {names}",
+                phase=GamePhase.DAY_DISCUSSION,
+                day_number=self.day_count
+            )
+    
+    async def _process_last_words(self, player_id: str, death_reason: str) -> None:
+        """Process last words for a dead player."""
+        player = self._get_player_by_id(player_id)
+        if not player:
+            return
+        
+        agent = self.agents.get(player_id)
+        if not agent:
+            return
+        
+        try:
+            # Get last words from agent
+            game_state = await self._create_game_state(player_id)
+            game_state.my_status = "dead"
+            action = await agent.make_decision(game_state, ["last_words"])
+            
+            if action.content:
+                logger.info(f"💀 {player.name} 的遗言: {action.content}")
+                print(f"[遗言] {player.name}: {action.content}")
+                
+                await self.event_service.record_event(
+                    session_id=self.session.id,
+                    event_type=EventType.PLAYER_SPEECH,
+                    content=f"{player.name} 遗言: {action.content}",
+                    actor_id=player_id,
+                    phase=GamePhase.DAY_DISCUSSION,
+                    day_number=self.day_count
+                )
+        except Exception as e:
+            logger.error(f"Error getting last words from {player.name}: {e}")
+    
+    async def _process_sheriff_election(self) -> None:
+        """Process sheriff election (day 1 only)."""
+        logger.info("🎖️ 开始警长竞选")
+        print("[警长竞选] 开始警长竞选环节")
+        
+        await self._transition_to_phase(GamePhase.SHERIFF_ELECTION)
+        
+        # Get candidates (alive players who want to run)
+        candidates = []
+        for agent_id, agent in self.agents.items():
+            if self._is_player_alive(agent_id):
+                try:
+                    game_state = await self._create_game_state(agent_id)
+                    action = await agent.make_decision(game_state, ["run_for_sheriff", "decline_sheriff"])
+                    
+                    if action.action_type == "run_for_sheriff":
+                        candidates.append(agent_id)
+                        player = self._get_player_by_id(agent_id)
+                        logger.info(f"🎖️ {player.name} 参与竞选警长")
+                        print(f"[竞选] {player.name} 参与竞选警长")
+                        
+                        # Campaign speech
+                        if action.content:
+                            logger.info(f"📢 {player.name} 竞选发言: {action.content}")
+                            print(f"[竞选发言] {player.name}: {action.content}")
+                except Exception as e:
+                    logger.error(f"Error in sheriff election for {agent.name}: {e}")
+        
+        if not candidates:
+            logger.info("🎖️ 无人参与竞选，本局无警长")
+            print("[警长竞选] 无人参与竞选，本局无警长")
+            return
+        
+        # Voting for sheriff
+        votes = {}
+        for agent_id, agent in self.agents.items():
+            if self._is_player_alive(agent_id) and agent_id not in candidates:
+                try:
+                    game_state = await self._create_game_state(agent_id)
+                    action = await agent.make_decision(game_state, ["vote_sheriff"])
+                    
+                    if action.target and action.target in candidates:
+                        votes[agent_id] = action.target
+                except Exception as e:
+                    logger.error(f"Error in sheriff vote from {agent.name}: {e}")
+        
+        # Count votes and elect sheriff
+        if votes:
+            vote_counts = {}
+            for target_id in votes.values():
+                vote_counts[target_id] = vote_counts.get(target_id, 0) + 1
+            
+            sheriff_id = max(vote_counts.keys(), key=lambda k: vote_counts[k])
+            sheriff = self._get_player_by_id(sheriff_id)
+            
+            if sheriff:
+                self.session.sheriff = {"player_id": sheriff_id, "player_name": sheriff.name}
+                sheriff.voting_weight = 1.5  # Sheriff has 1.5 vote
+                
+                logger.info(f"🎖️ {sheriff.name} 当选警长！")
+                print(f"[警长竞选] {sheriff.name} 当选警长！")
 
     async def _eliminate_player(self, player_id: str, reason: str) -> None:
         """Eliminate a player from the game."""
@@ -495,7 +796,7 @@ class AIGameEngine:
     def _get_night_actions_for_role(self, role: Role) -> List[str]:
         """Get available actions for a role during night."""
         actions = {
-            Role.WEREWOLF: ["werewolf_kill"],
+            Role.WEREWOLF: ["werewolf_discuss", "werewolf_kill"],
             Role.SEER: ["seer_check"],
             Role.WITCH: ["witch_save", "witch_poison", "wait"],
             Role.HUNTER: ["wait"],
@@ -568,7 +869,7 @@ class AIGameEngine:
 
         if self.session.current_phase == GamePhase.NIGHT:
             return self._get_night_actions_for_role(agent.role)
-        elif self.session.current_phase == GamePhase.DAY:
+        elif self.session.current_phase == GamePhase.DAY_DISCUSSION:
             return ["speech"]
         elif self.session.current_phase == GamePhase.VOTING:
             return ["vote"]
@@ -660,8 +961,24 @@ class AIGameEngine:
         return player and player.status == PlayerStatus.ALIVE
 
     def _get_player_by_id(self, player_id: str) -> Optional[Player]:
-        """Get player by ID."""
-        return next((p for p in self.room.players if p.id == player_id), None)
+        """Get player by ID or position number."""
+        # First try by UUID
+        player = next((p for p in self.room.players if p.id == player_id), None)
+        if player:
+            return player
+        
+        # Try by position number (AI might return "2" instead of UUID)
+        try:
+            position = int(player_id)
+            player = next((p for p in self.room.players if p.position == position), None)
+            if player:
+                return player
+        except (ValueError, TypeError):
+            pass
+        
+        # Try by player name
+        player = next((p for p in self.room.players if p.name == player_id), None)
+        return player
 
     async def _record_agent_action(self, agent_id: str, action: AgentAction, phase: GamePhase) -> None:
         """Record agent action in event log."""

@@ -47,6 +47,7 @@ class EventType(str, Enum):
 
     # Discussion events
     PLAYER_SPEAK = "player_speak"
+    PLAYER_SPEECH = "player_speech"  # Alias for compatibility
 
     # Voting events
     VOTE_START = "vote_start"
@@ -55,6 +56,7 @@ class EventType(str, Enum):
 
     # Death events
     PLAYER_DEATH = "player_death"
+    DEATH_ANNOUNCE = "death_announce"  # Announce deaths at day start
 
     # Hunter events
     HUNTER_SHOOT = "hunter_shoot"
@@ -76,9 +78,11 @@ class SheriffState:
 @dataclass
 class NightActions:
     """Night phase actions."""
-    werewolf_target: Optional[Dict[str, str]] = None  # {player_id, player_name, agreed_by}
+    werewolf_target: Optional[Dict[str, str]] = None  # {player_id, player_name}
     seer_check: Optional[Dict[str, str]] = None       # {target_id, target_name, result}
     witch_action: Optional[Dict[str, Any]] = None      # {action, target_id, target_name}
+    witch_save: bool = False                           # Whether witch used antidote
+    witch_poison_target: Optional[Dict[str, str]] = None  # {player_id, player_name}
 
 
 @dataclass
@@ -170,6 +174,21 @@ class GameEvent:
     content: str = ""
     details: Optional[Dict[str, Any]] = None
     visibility: EventVisibility = field(default_factory=lambda: EventVisibility(public=True))
+
+    @property
+    def is_public(self) -> bool:
+        """Check if event is public."""
+        return self.visibility.public
+
+    @property
+    def day_number(self) -> int:
+        """Alias for day_count."""
+        return self.day_count
+
+    @property
+    def event_type(self) -> EventType:
+        """Alias for type."""
+        return self.type
 
 
 @dataclass

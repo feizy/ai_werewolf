@@ -131,7 +131,7 @@ class DatabaseManager:
                     "--verbose"
                 ]
 
-                result = subprocess.run(cmd, capture_output=True, text=True)
+                result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
                 if result.returncode != 0:
                     raise Exception(f"pg_dump failed: {result.stderr}")
 

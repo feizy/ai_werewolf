@@ -58,6 +58,16 @@ class GameEvent:
         """Get event type."""
         return self.event_type
 
+    @property
+    def is_public(self) -> bool:
+        """Check if event is public."""
+        return self.visibility.public
+
+    @property
+    def day_number(self) -> int:
+        """Alias for day_count."""
+        return self.day_count
+
     def is_visible_to_player(self, player_id: str, player_role: Optional[str] = None) -> bool:
         """Check if event is visible to a specific player."""
         # Public events are visible to all
@@ -105,6 +115,46 @@ class EventService:
 
     def __init__(self):
         self.events: Dict[str, List[GameEvent]] = {}  # session_id -> events
+
+    async def record_event(
+        self,
+        session_id: str,
+        event_type: EventType,
+        content: str,
+        phase: GamePhase,
+        day_number: int,
+        actor_id: Optional[str] = None,
+        target_id: Optional[str] = None,
+        data: Optional[Dict[str, Any]] = None,
+        visible_to_players: Optional[List[str]] = None
+    ) -> GameEvent:
+        """Record a game event (async wrapper for create_event)."""
+        # Create visibility configuration
+        visibility = EventVisibility(
+            public=visible_to_players is None,
+            visible_to_players=visible_to_players or []
+        )
+        
+        # Create event details if data provided
+        details = None
+        if data:
+            details = EventDetails()
+            if "result" in data:
+                details.seer_check_result = data.get("result")
+            if "action" in data:
+                details.witch_action = data
+        
+        return self.create_event(
+            session_id=session_id,
+            event_type=event_type,
+            phase=phase,
+            day_count=day_number,
+            content=content,
+            actor_id=actor_id,
+            target_id=target_id,
+            details=details,
+            visibility=visibility
+        )
 
     def create_event(
         self,

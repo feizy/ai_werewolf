@@ -316,8 +316,18 @@ class Player:
         model_config: Optional[Dict[str, Any]] = None
     ) -> "Player":
         """Create AI player with optional role, AI config, and model config."""
-        ai_config_dict = ai_config or {}
+        ai_config_dict = ai_config.copy() if ai_config else {}
         model_config_dict = model_config or {}
+
+        # Convert string values to enum types
+        if "personality" in ai_config_dict and isinstance(ai_config_dict["personality"], str):
+            ai_config_dict["personality"] = PersonalityType(ai_config_dict["personality"])
+        if "skill_level" in ai_config_dict and isinstance(ai_config_dict["skill_level"], str):
+            ai_config_dict["skill_level"] = SkillLevel(ai_config_dict["skill_level"])
+        if "response_time" in ai_config_dict and isinstance(ai_config_dict["response_time"], str):
+            ai_config_dict["response_time"] = ResponseTime(ai_config_dict["response_time"])
+        if "strategy" in ai_config_dict and isinstance(ai_config_dict["strategy"], str):
+            ai_config_dict["strategy"] = StrategyType(ai_config_dict["strategy"])
 
         # Add model_config to ai_config
         ai_config_dict["model_config"] = model_config_dict
