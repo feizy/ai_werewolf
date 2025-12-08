@@ -132,8 +132,9 @@ class AIGameEngine:
             if p.status == PlayerStatus.ALIVE and p.role != Role.WEREWOLF
         ]
         
-        # Each werewolf shares a brief opinion (one round)
-        suggestions = []
+        # Each werewolf shares: 1. target suggestion, 2. brief reason
+        # All wolves can see previous wolves' messages
+        wolf_messages = []  # List of {"wolf": name, "target": target_name, "reason": reason}
         for agent in werewolf_agents:
             try:
                 game_state = await self._create_game_state(agent.player_id)
@@ -141,24 +142,35 @@ class AIGameEngine:
                     {"position": p.position, "name": p.name} 
                     for p in potential_targets
                 ]
+                # Share all previous wolves' messages
+                game_state.known_info["wolf_discussion"] = wolf_messages.copy()
                 
                 action = await agent.make_decision(game_state, ["werewolf_discuss"])
                 
                 if action.target:
                     target_player = self._get_player_by_id(action.target)
                     if target_player:
-                        suggestions.append(target_player.name)
-                        logger.info(f"🐺 {agent.name} 建议击杀: {target_player.name}")
-                        print(f"[狼人] {agent.name} 建议击杀: {target_player.name}")
+                        # Extract brief reason from content or reasoning
+                        reason = action.reasoning or action.content or "无理由"
+                        if len(reason) > 50:
+                            reason = reason[:50] + "..."
+                        
+                        wolf_messages.append({
+                            "wolf": agent.name,
+                            "target": target_player.name,
+                            "reason": reason
+                        })
+                        logger.info(f"🐺 {agent.name}: 建议击杀 {target_player.name}，理由: {reason}")
+                        print(f"[狼人] {agent.name}: 建议击杀 {target_player.name}，理由: {reason}")
                     
             except Exception as e:
                 logger.error(f"Error in werewolf discussion for {agent.name}: {e}")
         
-        # First werewolf (leader) makes final decision
+        # First werewolf (leader) makes final decision based on all discussion
         leader = werewolf_agents[0]
         try:
             game_state = await self._create_game_state(leader.player_id)
-            game_state.known_info["teammate_suggestions"] = suggestions
+            game_state.known_info["wolf_discussion"] = wolf_messages  # All wolves' messages with reasons
             game_state.known_info["potential_targets"] = [
                 {"position": p.position, "name": p.name} 
                 for p in potential_targets
@@ -760,7 +772,7 @@ class AIGameEngine:
         if not player or player.status != PlayerStatus.ALIVE:
             return
 
-        player.status = PlayerStatus.DEATH
+        player.status = PlayerStatus.DEAD
         player.death_cause = reason
 
         # Enhanced elimination log
