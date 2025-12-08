@@ -246,12 +246,15 @@ class WerewolfAPI:
         @self.app.get("/games/{game_id}", response_model=Dict[str, Any])
         async def get_game(game_id: str):
             """Get game information."""
-            # Find game engine
-            game_engine = None
-            for engine in self.game_engines.values():
-                if engine.get_session() and engine.get_session().id == game_id:
-                    game_engine = engine
-                    break
+            # First try to find by room_id (game_engines key)
+            game_engine = self.game_engines.get(game_id)
+            
+            # If not found, try to find by session id
+            if not game_engine:
+                for engine in self.game_engines.values():
+                    if engine.get_session() and engine.get_session().id == game_id:
+                        game_engine = engine
+                        break
 
             if not game_engine:
                 raise HTTPException(status_code=404, detail="Game not found")
@@ -261,11 +264,15 @@ class WerewolfAPI:
         @self.app.get("/games/{game_id}/state", response_model=GameStateResponse)
         async def get_game_state(game_id: str):
             """Get current game state."""
-            game_engine = None
-            for engine in self.game_engines.values():
-                if engine.get_session() and engine.get_session().id == game_id:
-                    game_engine = engine
-                    break
+            # First try to find by room_id (game_engines key)
+            game_engine = self.game_engines.get(game_id)
+            
+            # If not found, try to find by session id
+            if not game_engine:
+                for engine in self.game_engines.values():
+                    if engine.get_session() and engine.get_session().id == game_id:
+                        game_engine = engine
+                        break
 
             if not game_engine:
                 raise HTTPException(status_code=404, detail="Game not found")

@@ -18,7 +18,7 @@ def start_game():
     print("正在创建房间...")
     create_data = {
         "name": "狼人杀对战房间",
-        "player_name": "房主玩家"
+        "player_name": "牛姐"
     }
 
     try:
@@ -40,14 +40,14 @@ def start_game():
     # 2. 添加8个AI玩家
     print("\n开始添加AI玩家...")
     ai_names = [
-        "2号",
-        "3号",
-        "4号",
-        "5号",
-        "6号",
-        "7号",
-        "8号",
-        "9号"
+        "依依",
+        "路易",
+        "国锋",
+        "刘艺",
+        "小倩",
+        "费费",
+        "流云",
+        "再亮"
     ]
 
     successful_players = 1  # 房主已经算一个

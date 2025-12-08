@@ -132,8 +132,9 @@ class AIGameEngine:
             if p.status == PlayerStatus.ALIVE and p.role != Role.WEREWOLF
         ]
         
-        # Each werewolf shares a brief opinion (one round)
-        suggestions = []
+        # Each werewolf shares: 1. target suggestion, 2. brief reason
+        # All wolves can see previous wolves' messages
+        wolf_messages = []  # List of {"wolf": name, "target": target_name, "reason": reason}
         for agent in werewolf_agents:
             try:
                 game_state = await self._create_game_state(agent.player_id)
@@ -141,24 +142,35 @@ class AIGameEngine:
                     {"position": p.position, "name": p.name} 
                     for p in potential_targets
                 ]
+                # Share all previous wolves' messages
+                game_state.known_info["wolf_discussion"] = wolf_messages.copy()
                 
                 action = await agent.make_decision(game_state, ["werewolf_discuss"])
                 
                 if action.target:
                     target_player = self._get_player_by_id(action.target)
                     if target_player:
-                        suggestions.append(target_player.name)
-                        logger.info(f"🐺 {agent.name} 建议击杀: {target_player.name}")
-                        print(f"[狼人] {agent.name} 建议击杀: {target_player.name}")
+                        # Extract brief reason from content or reasoning
+                        reason = action.reasoning or action.content or "无理由"
+                        if len(reason) > 50:
+                            reason = reason[:50] + "..."
+                        
+                        wolf_messages.append({
+                            "wolf": agent.name,
+                            "target": target_player.name,
+                            "reason": reason
+                        })
+                        logger.info(f"🐺 {agent.name}: 建议击杀 {target_player.name}，理由: {reason}")
+                        print(f"[狼人] {agent.name}: 建议击杀 {target_player.name}，理由: {reason}")
                     
             except Exception as e:
                 logger.error(f"Error in werewolf discussion for {agent.name}: {e}")
         
-        # First werewolf (leader) makes final decision
+        # First werewolf (leader) makes final decision based on all discussion
         leader = werewolf_agents[0]
         try:
             game_state = await self._create_game_state(leader.player_id)
-            game_state.known_info["teammate_suggestions"] = suggestions
+            game_state.known_info["wolf_discussion"] = wolf_messages  # All wolves' messages with reasons
             game_state.known_info["potential_targets"] = [
                 {"position": p.position, "name": p.name} 
                 for p in potential_targets
@@ -699,46 +711,75 @@ class AIGameEngine:
         
         await self._transition_to_phase(GamePhase.SHERIFF_ELECTION)
         
-        # Get candidates (alive players who want to run)
+        # Step 1: Each player decides whether to run (no speech required for declining)
         candidates = []
         for agent_id, agent in self.agents.items():
             if self._is_player_alive(agent_id):
-                try:
-                    game_state = await self._create_game_state(agent_id)
-                    action = await agent.make_decision(game_state, ["run_for_sheriff", "decline_sheriff"])
-                    
-                    if action.action_type == "run_for_sheriff":
-                        candidates.append(agent_id)
-                        player = self._get_player_by_id(agent_id)
-                        logger.info(f"🎖️ {player.name} 参与竞选警长")
-                        print(f"[竞选] {player.name} 参与竞选警长")
+                # Retry up to 2 times on connection errors
+                for attempt in range(2):
+                    try:
+                        game_state = await self._create_game_state(agent_id)
+                        action = await agent.make_decision(game_state, ["run_for_sheriff", "decline_sheriff"])
                         
-                        # Campaign speech
-                        if action.content:
-                            logger.info(f"📢 {player.name} 竞选发言: {action.content}")
-                            print(f"[竞选发言] {player.name}: {action.content}")
-                except Exception as e:
-                    logger.error(f"Error in sheriff election for {agent.name}: {e}")
+                        if action.action_type == "run_for_sheriff":
+                            candidates.append({"id": agent_id, "agent": agent})
+                            player = self._get_player_by_id(agent_id)
+                            logger.info(f"🎖️ {player.name} 参与竞选警长")
+                            print(f"[竞选] {player.name} 参与竞选警长")
+                        # Players who decline don't need to say anything
+                        break  # Success, exit retry loop
+                    except Exception as e:
+                        if attempt == 0 and "connection" in str(e).lower():
+                            logger.warning(f"Connection error for {agent.name}, retrying...")
+                            await asyncio.sleep(1)  # Wait before retry
+                        else:
+                            logger.error(f"Error in sheriff election for {agent.name}: {e}")
+                            break
         
         if not candidates:
             logger.info("🎖️ 无人参与竞选，本局无警长")
             print("[警长竞选] 无人参与竞选，本局无警长")
             return
         
-        # Voting for sheriff
+        # Step 2: Only candidates give campaign speeches
+        logger.info("📢 竞选者发表竞选演说")
+        print("[竞选发言] 竞选者发表竞选演说")
+        for candidate in candidates:
+            try:
+                game_state = await self._create_game_state(candidate["id"])
+                game_state.known_info["is_campaign_speech"] = True
+                action = await candidate["agent"].make_decision(game_state, ["campaign_speech"])
+                
+                player = self._get_player_by_id(candidate["id"])
+                if action.content and player:
+                    logger.info(f"📢 {player.name}: {action.content[:100]}...")
+                    print(f"[竞选发言] {player.name}: {action.content}")
+            except Exception as e:
+                logger.error(f"Error in campaign speech for {candidate['agent'].name}: {e}")
+        
+        # Step 3: Non-candidates vote (they don't need to speak, just vote)
+        candidate_ids = [c["id"] for c in candidates]
         votes = {}
         for agent_id, agent in self.agents.items():
-            if self._is_player_alive(agent_id) and agent_id not in candidates:
+            if self._is_player_alive(agent_id) and agent_id not in candidate_ids:
                 try:
                     game_state = await self._create_game_state(agent_id)
+                    game_state.known_info["candidates"] = [
+                        {"id": c["id"], "name": self._get_player_by_id(c["id"]).name}
+                        for c in candidates
+                    ]
                     action = await agent.make_decision(game_state, ["vote_sheriff"])
                     
-                    if action.target and action.target in candidates:
-                        votes[agent_id] = action.target
+                    if action.target:
+                        target_player = self._get_player_by_id(action.target)
+                        if target_player and target_player.id in candidate_ids:
+                            votes[agent_id] = target_player.id
+                            voter = self._get_player_by_id(agent_id)
+                            logger.info(f"🗳️ {voter.name} 投票给 {target_player.name}")
                 except Exception as e:
                     logger.error(f"Error in sheriff vote from {agent.name}: {e}")
         
-        # Count votes and elect sheriff
+        # Step 4: Count votes and elect sheriff
         if votes:
             vote_counts = {}
             for target_id in votes.values():
@@ -753,6 +794,15 @@ class AIGameEngine:
                 
                 logger.info(f"🎖️ {sheriff.name} 当选警长！")
                 print(f"[警长竞选] {sheriff.name} 当选警长！")
+        elif len(candidates) == 1:
+            # Only one candidate, auto-elect
+            sheriff_id = candidates[0]["id"]
+            sheriff = self._get_player_by_id(sheriff_id)
+            if sheriff:
+                self.session.sheriff = {"player_id": sheriff_id, "player_name": sheriff.name}
+                sheriff.voting_weight = 1.5
+                logger.info(f"🎖️ {sheriff.name} 自动当选警长！")
+                print(f"[警长竞选] {sheriff.name} 自动当选警长（唯一竞选者）")
 
     async def _eliminate_player(self, player_id: str, reason: str) -> None:
         """Eliminate a player from the game."""
@@ -760,7 +810,7 @@ class AIGameEngine:
         if not player or player.status != PlayerStatus.ALIVE:
             return
 
-        player.status = PlayerStatus.DEATH
+        player.status = PlayerStatus.DEAD
         player.death_cause = reason
 
         # Enhanced elimination log

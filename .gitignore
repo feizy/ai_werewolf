@@ -4,3 +4,4 @@ __pycache__/
 
 #把/backend_py/.env文件添加到gitignore
 *.env
+**/node_modules/
