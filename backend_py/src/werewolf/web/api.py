@@ -13,7 +13,7 @@ import uvicorn
 
 from loguru import logger
 
-from ..models.player import Player, Role
+from ..models.player import Player, Role, ModelConfig
 from ..models.room import GameRoom, RoomStatus
 from ..models.game import GameSession, GamePhase, Team
 from ..models.events import EventService
@@ -29,6 +29,7 @@ class PlayerCreate(BaseModel):
 class RoomCreate(BaseModel):
     room_name: Optional[str] = Field(None, max_length=50)
     max_players: int = Field(9, ge=4, le=20)
+    llm_config: ModelConfig
 
 class RoomResponse(BaseModel):
     room_id: str
@@ -46,7 +47,6 @@ class RoomJoin(BaseModel):
 class RoomStatusResponse(BaseModel):
     id: str
     name: Optional[str]
-    creator_name: str
     current_players: int
     max_players: int
     status: str
@@ -162,7 +162,8 @@ class WerewolfAPI:
             try:
                 room = GameRoom.create_room(
                     room_name=room_data.room_name,
-                    max_players=room_data.max_players
+                    max_players=room_data.max_players,
+                    llm_config=room_data.llm_config
                 )
 
                 self.rooms[room.id] = room
@@ -208,7 +209,6 @@ class WerewolfAPI:
                 return RoomStatusResponse(
                     id=room.id,
                     name=room.name,
-                    creator_name=room.get_player(room.creator_id).name if room.get_player(room.creator_id) else "Unknown",
                     current_players=room.current_players,
                     max_players=room.max_players,
                     status=room.status.value,

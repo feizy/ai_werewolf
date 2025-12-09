@@ -36,7 +36,7 @@ class WerewolfReactAgent(BaseGameAgent):
     ) -> AgentAction:
         """Make werewolf-specific decision."""
         # Update werewolf-specific analysis
-        await self._analyze_werewolf_situation(game_state)
+        # await self._analyze_werewolf_situation(game_state)
 
         # Call parent decision making
         action = await super().make_decision(game_state, available_actions)

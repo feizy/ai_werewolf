@@ -14,7 +14,7 @@ from ..models.game import GameSession, GamePhase, EventType, Team
 from ..models.events import EventService
 from ..agents.agent_factory import AgentFactory
 from ..agents.base_agent import GameState, AgentAction
-
+from agentscope.message import Msg
 if TYPE_CHECKING:
     from .ai_manager import AIManager
 
@@ -105,6 +105,25 @@ class AIGameEngine:
     async def _start_night_phase(self) -> None:
         """Start night phase."""
         logger.info(f"Starting night phase, day {self.day_count}")
+        if self.day_count > 1:
+            #总结上一日发言，存入event_service
+            daily_summary = await self._get_daily_summary()
+            await self.event_service.record_event(
+                session_id=self.session.id,
+                event_type=EventType.DAILY_SUMMARY,
+                content=daily_summary,
+                phase=GamePhase.DAY_DISCUSSION,
+                day_number=self.day_count-1
+            )
+            #clear all players' memory
+            for agent_id, agent in self.agents.items():
+                await agent.agent.memory.clear()
+            #取出所有之前日的summary，存入所有玩家memory       
+            for event in self.session.events:
+                if event.event_type == EventType.DAILY_SUMMARY:
+                    msg = Msg(role="system", content=event.content, name="system")
+                    for agent_id, agent in self.agents.items():
+                        await agent.agent.memory.add(msg)
 
         await self._transition_to_phase(GamePhase.NIGHT)
 
@@ -378,18 +397,26 @@ class AIGameEngine:
     async def _analyze_speech_for_agent(self, listener_id: str, speaker_id: str, content: str) -> None:
         """Agent analyzes speech from another player."""
         listener_agent = self.agents[listener_id]
+        # add content to memory (InMemoryMemory.add 是协程，需要 await)
+        content = f"{speaker_id}发言：{content}"
+        msg = Msg(role="system", name=speaker_id, content=content)
+        try:
+            if listener_agent.agent and getattr(listener_agent.agent, "memory", None):
+                await listener_agent.agent.memory.add(msg)
+        except Exception as e:
+            logger.warning(f"Failed to add speech to memory for {listener_id}: {e}")
 
         # Simple speech analysis - this would be enhanced with the agent's own analysis
-        if "狼人" in content or "werewolf" in content.lower():
-            # Player is actively looking for werewolves
-            current_suspicion = listener_agent.suspicions.get(speaker_id, 0.1)
-            listener_agent.suspicions[speaker_id] = max(0.0, current_suspicion - 0.1)
+        # if "狼人" in content or "werewolf" in content.lower():
+        #     # Player is actively looking for werewolves
+        #     current_suspicion = listener_agent.suspicions.get(speaker_id, 0.1)
+        #     listener_agent.suspicions[speaker_id] = max(0.0, current_suspicion - 0.1)
 
-        # Update notes
-        current_notes = listener_agent.player_notes.get(speaker_id, "")
-        new_note = f"发言记录: {content[:50]}..."
-        if new_note not in current_notes:
-            listener_agent.update_player_notes(speaker_id, f"{current_notes} | {new_note}")
+        # # Update notes
+        # current_notes = listener_agent.player_notes.get(speaker_id, "")
+        # new_note = f"发言记录: {content[:50]}..."
+        # if new_note not in current_notes:
+        #     listener_agent.update_player_notes(speaker_id, f"{current_notes} | {new_note}")
 
     async def _start_voting_phase(self) -> None:
         """Start voting phase."""
@@ -412,7 +439,7 @@ class AIGameEngine:
                 if action.action_type == "vote" and action.target:
                     votes[agent.player_id] = action.target
                     logger.info(f"{agent.name} votes for {action.target}")
-                    voting_record[agent.name] = {agent.player_id: action.target}
+                    voting_record[agent.name] = self._get_player_by_id(action.target)
             except Exception as e:
                 logger.error(f"Error getting vote from {agent.name}: {e}")
         voting_name = f"第{self.day_count}天白天放逐投票"
@@ -788,7 +815,7 @@ class AIGameEngine:
                             votes[agent_id] = target_player.id
                             voter = self._get_player_by_id(agent_id)
                             logger.info(f"🗳️ {voter.name} 投票给 {target_player.name}")
-                            voting_record[voter.name] = {voter.id: target_player.id}
+                            voting_record[voter.name] = target_player.name
                 except Exception as e:
                     logger.error(f"Error in sheriff vote from {agent.name}: {e}")
         voting_name = "警长竞选投票"
@@ -1112,3 +1139,29 @@ class AIGameEngine:
                 for player_id, agent in self.agents.items()
             }
         }
+
+    async def _get_daily_summary(self) -> str:
+        """Get daily summary of speeches for the current day."""
+        if not self.session:
+            return ""
+
+        # 从 EventService 获取当前对局的事件，过滤当日的发言事件
+        all_events = self.event_service.get_session_events(self.session.id)
+        speech_events = [
+            e for e in all_events
+            if e.event_type == EventType.PLAYER_SPEECH and e.day_count == self.day_count
+        ]
+
+        speech_summary = ""
+        for event in speech_events:
+            speech_summary += f"{event.actor_name}（{event.actor_id}）发言：{event.content}\n"
+
+        logger.info(f"第{self.day_count}天发言：{speech_summary}")
+
+        # 调用 LLM 总结发言，重点关注“保谁 / 踩谁”
+        prompt = f"总结第{self.day_count}天的所有发言，重点关注谁保了谁、谁踩了谁，不要漏掉任何发言：\n{speech_summary}"
+        msg = Msg(role="user", content=prompt, name="user")
+        summary = await self.room.summary_agent(msg)
+        logger.info(f"第{self.day_count}天发言总结：{summary.content}")
+        return summary.content
+

@@ -294,13 +294,13 @@ class BaseGameAgent(ABC):
 请分析当前局势，选择最佳行动。你需要以JSON格式回应，包含以下字段：
 {{
     "action_type": "选择的行动类型",
-    "target": "目标玩家ID（如果适用）",
+    "target": "目标玩家名称（如果适用）",
     "content": "发言内容或行动详情",
     "reasoning": "决策理由",
     "confidence": 0.8,
     "strategic_analysis": "战略分析"
 }}
-
+如果target为空，则表示不选择目标，如弃票，不使用解药等
 请确保你的决策符合你的身份特点和当前局势。
 """
         return prompt

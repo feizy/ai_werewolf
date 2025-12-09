@@ -5,8 +5,11 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field
 from datetime import datetime
 import uuid
-
-from .player import Player, Role, Team
+from agentscope.agent import ReActAgent
+from agentscope.formatter import AnthropicChatFormatter, OpenAIChatFormatter, DashScopeChatFormatter
+from agentscope.memory import InMemoryMemory
+from agentscope.model import AnthropicChatModel, OpenAIChatModel, DashScopeChatModel
+from .player import Player, Role, Team, ModelConfig, ModelProvider
 
 
 class RoomStatus(str, Enum):
@@ -66,22 +69,39 @@ class GameRoom:
     def __init__(
         self,
         name: Optional[str] = None,
-        creator_id: Optional[str] = None,
         max_players: int = 9,
-        game_config: Optional[GameConfiguration] = None
+        game_config: Optional[GameConfiguration] = None,
+        llm_config: Optional[ModelConfig] = None
     ):
         self.id = str(uuid.uuid4())
         self.name = name
-        self.creator_id = creator_id or str(uuid.uuid4())
         self.max_players = max_players
         self.status = RoomStatus.WAITING
         self.game_config = game_config or GameConfiguration()
         self.created_at = datetime.now()
         self.started_at: Optional[datetime] = None
         self.ended_at: Optional[datetime] = None
-
+        self.llm_config = llm_config
         self._players: List[Player] = []
-
+        if llm_config.provider == ModelProvider.ANTHROPIC or llm_config.provider == ModelProvider.ZHIPU:
+            formatter = AnthropicChatFormatter()
+            model = AnthropicChatModel(llm_config.model_name, api_key=llm_config.api_key, stream=llm_config.stream)
+        elif llm_config.provider == ModelProvider.OPENAI:
+            formatter = OpenAIChatFormatter()
+            model = OpenAIChatModel(llm_config.model_name, api_key=llm_config.api_key, stream=llm_config.stream, enable_thinking=llm_config.enable_thinking)
+        elif llm_config.provider == ModelProvider.DASHSCOPE:
+            formatter = DashScopeChatFormatter()
+            model = DashScopeChatModel(llm_config.model_name, api_key=llm_config.api_key, stream=llm_config.stream, enable_thinking=llm_config.enable_thinking)
+        else:
+            raise ValueError(f"Unsupported model provider: {llm_config.provider}")
+        self.summary_agent=ReActAgent(
+            name="summary_agent",
+            model=model,
+            sys_prompt="你是一个游戏总结者，负责总结游戏中的发言和行动，重点关注保谁踩谁",
+            formatter=formatter,
+            max_iters=3,
+            memory=InMemoryMemory()
+        )
     @property
     def players(self) -> List[Player]:
         """Get all players in room."""
@@ -195,7 +215,6 @@ class GameRoom:
         return {
             "id": self.id,
             "name": self.name,
-            "creator_id": self.creator_id,
             "max_players": self.max_players,
             "current_players": self.current_players,
             "status": self.status.value,
@@ -283,12 +302,14 @@ class GameRoom:
     def create_room(
         cls,
         room_name: Optional[str] = None,
-        max_players: int = 9
+        max_players: int = 9,
+        llm_config: Optional[ModelConfig] = None
     ) -> "GameRoom":
-        """Create new empty room. Players join via add_player()."""
+        """Create new empty room. Players join via add_player().需要配置大模型api作为裁判，用于summary"""
         room = cls(
             name=room_name,
-            max_players=max_players
+            max_players=max_players,
+            llm_config=llm_config
         )
         return room
 

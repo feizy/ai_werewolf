@@ -92,7 +92,6 @@ class AIManager:
                 "model_name": model_config.model_name,
                 "api_key": model_config.api_key,
                 "stream": model_config.stream,
-                "enable_thinking": model_config.enable_thinking,
                 "client_kwargs": model_config.client_kwargs,
             }
             model_config = config_dict
@@ -116,7 +115,7 @@ class AIManager:
         # Create model based on provider
         if provider == ModelProvider.ANTHROPIC:
             # AnthropicChatModel for Claude / 智谱 GLM (Anthropic-compatible API)
-            model = AnthropicChatModel(model_name, api_key=api_key, stream=stream, enable_thinking=enable_thinking, client_kwargs=client_kwargs)
+            model = AnthropicChatModel(model_name, api_key=api_key, stream=stream, client_kwargs=client_kwargs)
         elif provider == ModelProvider.OPENAI:
             # OpenAIChatModel for GPT / vLLM / compatible endpoints
             model = OpenAIChatModel(model_name, api_key=api_key, stream=stream, enable_thinking=enable_thinking, client_kwargs=client_kwargs)

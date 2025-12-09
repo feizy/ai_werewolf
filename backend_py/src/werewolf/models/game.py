@@ -32,7 +32,7 @@ class EventType(str, Enum):
     GAME_START = "game_start"
     GAME_END = "game_end"
     PHASE_CHANGE = "phase_change"
-
+    DAILY_SUMMARY = "daily_summary"
     # Night events
     WEREWOLF_KILL = "werewolf_kill"
     SEER_CHECK = "seer_check"

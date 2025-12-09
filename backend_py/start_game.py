@@ -30,7 +30,13 @@ def start_game():
     print("正在创建房间...")
     create_data = {
         "room_name": "狼人杀对战房间",
-        "max_players": 9
+        "max_players": 9,
+        "llm_config": {
+            "model_name": "glm-4.6",
+            "api_key": api_key,
+            "provider": "anthropic",
+            "stream": False,
+        }
     }
 
     try:
