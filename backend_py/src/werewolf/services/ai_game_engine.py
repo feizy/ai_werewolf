@@ -690,17 +690,19 @@ class AIGameEngine:
     async def _announce_night_deaths(self, deaths: List[Dict[str, Any]]) -> None:
         """Announce night deaths."""
         if not deaths:
+            result = "昨晚是平安夜，无人死亡"
             logger.info("☀️ 昨晚是平安夜，无人死亡")
             print("[天亮] 昨晚是平安夜，无人死亡")
             await self.event_service.record_event(
                 session_id=self.session.id,
                 event_type=EventType.DEATH_ANNOUNCE,
-                content="昨晚是平安夜，无人死亡",
+                content=result,
                 phase=GamePhase.DAY_DISCUSSION,
                 day_number=self.day_count
             )
         else:
             names = ", ".join([d["player_name"] for d in deaths])
+            result = f"昨晚死亡: {names}"
             logger.info(f"☀️ 天亮了，昨晚死亡: {names}")
             print(f"[天亮] 昨晚死亡: {names}")
             await self.event_service.record_event(
@@ -710,7 +712,12 @@ class AIGameEngine:
                 phase=GamePhase.DAY_DISCUSSION,
                 day_number=self.day_count
             )
-    
+        #加入memory
+        msg = Msg(role="system", content=result, name="system")
+        for agent_id, agent in self.agents.items():
+            if self._is_player_alive(agent_id):
+                await agent.agent.memory.add(msg)
+
     async def _process_last_words(self, player_id: str, death_reason: str) -> None:
         """Process last words for a dead player."""
         player = self._get_player_by_id(player_id)
