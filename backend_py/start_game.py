@@ -6,10 +6,22 @@
 import requests
 import time
 import sys
+import os
+from dotenv import load_dotenv
+
+# 加载环境变量
+load_dotenv()
 
 def start_game():
     """启动游戏"""
     base_url = "http://localhost:8001"
+    
+    # 从环境变量获取 API Key
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        print("错误: 未设置 ANTHROPIC_API_KEY 环境变量")
+        print("请在 .env 文件中设置: ANTHROPIC_API_KEY=your_api_key")
+        return False
 
     print("狼人杀游戏启动脚本")
     print("=" * 40)
@@ -17,8 +29,8 @@ def start_game():
     # 1. 创建房间
     print("正在创建房间...")
     create_data = {
-        "name": "狼人杀对战房间",
-        "player_name": "牛姐"
+        "room_name": "狼人杀对战房间",
+        "max_players": 9
     }
 
     try:
@@ -26,20 +38,19 @@ def start_game():
         response.raise_for_status()
         room_info = response.json()
         room_id = room_info["room_id"]
-        creator_id = room_info["player_id"]
         print(f"房间创建成功!")
         print(f"房间ID: {room_id}")
-        print(f"房主ID: {creator_id}")
-        print(f"当前玩家数: {room_info['current_players']}")
+        print(f"当前玩家数: {room_info['current_players']}/{room_info['max_players']}")
     except Exception as e:
         print(f"创建房间失败: {e}")
         if hasattr(e, 'response') and e.response:
             print(f"错误详情: {e.response.text}")
         return False
 
-    # 2. 添加8个AI玩家
+    # 2. 添加9个AI玩家
     print("\n开始添加AI玩家...")
     ai_names = [
+        "牛姐",
         "依依",
         "路易",
         "国锋",
@@ -50,10 +61,10 @@ def start_game():
         "再亮"
     ]
 
-    successful_players = 1  # 房主已经算一个
+    successful_players = 0
 
     for i, name in enumerate(ai_names, 1):
-        print(f"[{i}/8] 添加玩家 '{name}': ", end="")
+        print(f"[{i}/9] 添加玩家 '{name}': ", end="")
 
         try:
             join_data = {
@@ -62,11 +73,15 @@ def start_game():
                 "ai_config": {
                     "personality": "analytical",
                     "skill_level": "intermediate",
-                    "language": "zh",
-                    "model_config": {
-                        "model_name": "glm-4.6",
-                        "temperature": 0.7
-                    }
+                    "language": "zh"
+                },
+                "model_configuration": {
+                    "model_name": "glm-4.6",
+                    "api_key": api_key,
+                    "provider": "anthropic",  # anthropic / openai / dashscope
+                    "temperature": 0.7,
+                    "stream": False,
+                    "client_kwargs": {}  # 可选: {"base_url": "https://custom-endpoint"}
                 }
             }
             

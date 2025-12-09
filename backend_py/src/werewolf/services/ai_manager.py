@@ -3,17 +3,19 @@
 import asyncio
 import os
 from typing import Dict, List, Optional, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 # AgentScope imports
 from agentscope.agent import ReActAgent
 from agentscope.message import Msg
-from agentscope.model import AnthropicChatModel
-from agentscope.formatter import AnthropicChatFormatter
-
+from agentscope.model import AnthropicChatModel, OpenAIChatModel, DashScopeChatModel
+from agentscope.formatter import AnthropicChatFormatter, OpenAIChatFormatter, DashScopeChatFormatter
+from agentscope.memory import InMemoryMemory
 from loguru import logger
-from ..models.player import Player, Role, PersonalityType, SkillLevel
+
+# Import from player.py (single source of truth)
+from ..models.player import Player, Role, PersonalityType, SkillLevel, ModelProvider, ModelConfig
 
 
 class AgentType(str, Enum):
@@ -38,82 +40,129 @@ class AgentConfig:
 
 
 class AIManager:
-    """Manages AI agents for the werewolf game."""
+    """Manages AI agents for the werewolf game.
+    
+    Supports lazy initialization - agents are created per-player with individual model configs.
+    """
 
     def __init__(self):
-        self.is_initialized: bool = False
         self.agents: Dict[str, ReActAgent] = {}
         self.agent_configs: Dict[str, AgentConfig] = {}
+        self.player_models: Dict[str, Any] = {}  # player_id -> model instance
 
-    # def _get_api_key(self) -> str:
-    #     from dotenv import load_dotenv
-    #     load_dotenv()
-    #     if os.getenv("ANTHROPIC_API_KEY"):
-    #         return os.getenv("ANTHROPIC_API_KEY")
-    #     if os.getenv("OPENAI_API_KEY"):
-    #         return os.getenv("OPENAI_API_KEY")
-    #     if os.getenv("DASHSCOPE_API_KEY"):
-    #         return os.getenv("DASHSCOPE_API_KEY")
-    #     return ""
-    
-    def _get_model_config(self) -> Dict[str, Any]:
-        """Get model configuration."""
+    def _get_default_model_config(self) -> Dict[str, Any]:
+        """Get default model configuration from environment."""
         from dotenv import load_dotenv
         load_dotenv()
-        config = {}
-        # Add API key if available   
+        
+        # Check for API keys in order of preference
         if os.getenv("ANTHROPIC_API_KEY"):
-            config["api_key"] = os.getenv("ANTHROPIC_API_KEY")
-            config["model_name"] = "glm-4.6"
+            return {
+                "provider": ModelProvider.ANTHROPIC,
+                "api_key": os.getenv("ANTHROPIC_API_KEY"),
+                "model_name": os.getenv("MODEL_NAME", "glm-4"),
+            }
         elif os.getenv("OPENAI_API_KEY"):
-            config["api_key"] = os.getenv("OPENAI_API_KEY")
-            config["model_name"] = "gpt-4"
+            return {
+                "provider": ModelProvider.OPENAI,
+                "api_key": os.getenv("OPENAI_API_KEY"),
+                "model_name": os.getenv("MODEL_NAME", "gpt-4"),
+            }
         elif os.getenv("DASHSCOPE_API_KEY"):
-            config["api_key"] = os.getenv("DASHSCOPE_API_KEY")
-            config["model_name"] = "qwen-max"
+            return {
+                "provider": ModelProvider.DASHSCOPE,
+                "api_key": os.getenv("DASHSCOPE_API_KEY"),
+                "model_name": os.getenv("MODEL_NAME", "qwen-max"),
+            }
+        
+        return {}
 
-        return config
-
-    async def initialize(self) -> None:
-        """Initialize AI manager with AgentScope."""
-        try:
-            # Initialize AgentScope with OpenAI model configuration
-            model_config = self._get_model_config()
-
-            logger.info("Initializing AgentScope with OpenAI model")
-            logger.info(f"Model config: {model_config}")
-
-            # Initialize the model
-            model = AnthropicChatModel(**model_config)
-
-            # Store model for later use
-            self.model = model
-            self.is_initialized = True
-
-            logger.info("AI Manager initialized successfully with AgentScope")
-        except Exception as e:
-            logger.error(f"Failed to initialize AI Manager: {e}")
-            raise
+    def _create_model_for_player(self, model_config: Dict[str, Any]) -> Any:
+        """Create model instance for a specific player based on their config.
+        
+        Supports ModelConfig dataclass or dict with same fields:
+        - model_name: str (required)
+        - api_key: str (required)
+        - provider: ModelProvider (default: ANTHROPIC)
+        - client_kwargs: Dict (for base_url, etc.)
+        """
+        # Handle ModelConfig dataclass
+        if hasattr(model_config, '__dataclass_fields__'):
+            config_dict = {
+                "provider": model_config.provider,
+                "model_name": model_config.model_name,
+                "api_key": model_config.api_key,
+                "temperature": model_config.temperature,
+                "stream": model_config.stream,
+                "enable_thinking": model_config.enable_thinking,
+                "client_kwargs": model_config.client_kwargs,
+            }
+            model_config = config_dict
+        
+        # Merge with defaults if no config provided
+        if not model_config:
+            model_config = self._get_default_model_config()
+        
+        if not model_config.get("api_key"):
+            raise ValueError("No API key provided for AI player")
+        
+        provider = model_config.get("provider", ModelProvider.ANTHROPIC)
+        api_key = model_config["api_key"]
+        model_name = model_config.get("model_name", "glm-4")
+        temperature = model_config.get("temperature", 0.7)
+        stream = model_config.get("stream", False)
+        enable_thinking = model_config.get("enable_thinking", False)
+        client_kwargs = model_config.get("client_kwargs", {})
+        
+        logger.info(f"Creating model: provider={provider}, model={model_name}")
+        
+        # Create model based on provider
+        if provider == ModelProvider.ANTHROPIC:
+            # AnthropicChatModel for Claude / 智谱 GLM (Anthropic-compatible API)
+            model = AnthropicChatModel(model_name, api_key=api_key, temperature=temperature, stream=stream, enable_thinking=enable_thinking, client_kwargs=client_kwargs)
+        elif provider == ModelProvider.OPENAI:
+            # OpenAIChatModel for GPT / vLLM / compatible endpoints
+            model = OpenAIChatModel(model_name, api_key=api_key, temperature=temperature, stream=stream, enable_thinking=enable_thinking, client_kwargs=client_kwargs)
+        elif provider == ModelProvider.DASHSCOPE:
+            # DashScopeChatModel for Qwen (阿里通义)
+            model = DashScopeChatModel(model_name, api_key=api_key, temperature=temperature, stream=stream, enable_thinking=enable_thinking)
+        else:
+            raise ValueError(f"Unsupported model provider: {provider}")
+        
+        return model
 
     async def create_agent(
         self,
         player: Player,
         custom_config: Optional[Dict[str, Any]] = None
     ) -> str:
-        """Create AI agent for player."""
-        if not self.is_initialized:
-            raise RuntimeError("AI Manager not initialized")
-
+        """Create AI agent for player with player-specific model config."""
         agent_id = f"agent-{player.id}"
         agent_type = self._role_to_agent_type(player.role)
+        
+        # Get model config from player's ai_config or use custom_config
+        player_model_config = {}
+        if player.ai_config and player.ai_config.model_config:
+            player_model_config = player.ai_config.model_config
+        if custom_config:
+            player_model_config.update(custom_config)
+        
+        # Create model for this specific player
+        try:
+            model = self._create_model_for_player(player_model_config)
+            self.player_models[player.id] = model
+            logger.info(f"Created model for player {player.name}: {player_model_config.get('model_name', 'default')}")
+        except Exception as e:
+            logger.error(f"Failed to create model for player {player.name}: {e}")
+            raise
 
-        # Create AgentScope agent
+        # Create AgentScope agent with player's model
         agent = await self._create_agentscope_agent(
             agent_id,
             player.name,
             agent_type,
             player.ai_config,
-            custom_config
+            model
         )
 
         self.agents[agent_id] = agent
@@ -135,24 +184,40 @@ class AIManager:
         agent_id: str,
         player_name: str,
         agent_type: AgentType,
-        ai_config: Dict[str, Any],
-        custom_config: Optional[Dict[str, Any]] = None
+        ai_config: Any,
+        model: Any
     ) -> ReActAgent:
-        """Create AgentScope ReAct agent."""
+        """Create AgentScope ReAct agent with player-specific model."""
+        # Convert ai_config to dict if needed
+        ai_config_dict = {}
+        if ai_config:
+            if hasattr(ai_config, '__dict__'):
+                ai_config_dict = {k: v.value if hasattr(v, 'value') else v 
+                                  for k, v in ai_config.__dict__.items()}
+            elif isinstance(ai_config, dict):
+                ai_config_dict = ai_config
 
         # Get system prompt based on role and personality
-        system_prompt = self._get_system_prompt(agent_type, ai_config)
+        system_prompt = self._get_system_prompt(agent_type, ai_config_dict)
 
-        # Create the ReAct agent using correct AgentScope API
+        # Create the ReAct agent using player's specific model
+        #不同类型的model使用不同类型的formatter
+        if model.provider == ModelProvider.ANTHROPIC or model.provider ==ModelProvider.ZHIPU:
+            formatter = AnthropicChatFormatter()
+        elif model.provider == ModelProvider.OPENAI:
+            formatter = OpenAIChatFormatter()
+        elif model.provider == ModelProvider.DASHSCOPE:
+            formatter = DashScopeChatFormatter()
+        else:
+            raise ValueError(f"Unsupported model provider: {model.provider}")
         agent = ReActAgent(
             name=f"{player_name}_{agent_type}",
             sys_prompt=system_prompt,
-            model=self.model,
-            formatter=AnthropicChatFormatter(),
+            model=model,
+            formatter=formatter,
             max_iters=3,
             parallel_tool_calls=False,
-            memory=True,
-            enable_monitor=True
+            memory=InMemoryMemory()  
         )
 
         logger.info(f"Created AgentScope ReAct agent: {player_name} ({agent_type})")
@@ -301,9 +366,6 @@ class AIManager:
 
     async def send_message(self, agent_id: str, message: str) -> Any:
         """Send message to agent and get response."""
-        if not self.is_initialized:
-            raise RuntimeError("AI Manager not initialized")
-
         agent = self.agents.get(agent_id)
         if not agent:
             raise ValueError(f"Agent {agent_id} not found")
@@ -328,8 +390,29 @@ class AIManager:
         """List all agent IDs."""
         return list(self.agents.keys())
 
+    def has_agent(self, player_id: str) -> bool:
+        """Check if agent exists for player."""
+        agent_id = f"agent-{player_id}"
+        return agent_id in self.agents
+
+    async def remove_agent(self, player_id: str) -> None:
+        """Remove agent for a specific player."""
+        agent_id = f"agent-{player_id}"
+        if agent_id in self.agents:
+            agent = self.agents.pop(agent_id)
+            try:
+                if hasattr(agent, 'close'):
+                    await agent.close()
+                logger.info(f"Removed agent for player: {player_id}")
+            except Exception as e:
+                logger.warning(f"Error closing agent {agent_id}: {e}")
+        
+        # Also remove the model
+        if player_id in self.player_models:
+            del self.player_models[player_id]
+
     async def shutdown(self) -> None:
-        """Shutdown AI manager."""
+        """Shutdown AI manager and cleanup all agents."""
         try:
             # Close all agents
             for agent_id, agent in self.agents.items():
@@ -341,7 +424,7 @@ class AIManager:
                     logger.warning(f"Error closing agent {agent_id}: {e}")
 
             self.agents.clear()
-            self.is_initialized = False
+            self.player_models.clear()
             logger.info("AI Manager shutdown successfully")
         except Exception as e:
             logger.error(f"Error during shutdown: {e}")

@@ -27,15 +27,12 @@ class PlayerCreate(BaseModel):
     ai_config: Optional[Dict[str, Any]] = Field(default=None, description="AI configuration")
 
 class RoomCreate(BaseModel):
-    player_name: str = Field(..., min_length=1, max_length=20)
     room_name: Optional[str] = Field(None, max_length=50)
     max_players: int = Field(9, ge=4, le=20)
 
 class RoomResponse(BaseModel):
     room_id: str
-    player_id: str
     room_name: Optional[str]
-    creator_id: str
     current_players: int
     max_players: int
     status: str
@@ -161,23 +158,18 @@ class WerewolfAPI:
 
         @self.app.post("/rooms", response_model=RoomResponse)
         async def create_room(room_data: RoomCreate):
-            """Create new room."""
+            """Create new empty room. Players join via /rooms/{room_id}/join."""
             try:
-                # Create room with creator
                 room = GameRoom.create_room(
-                    creator_name=room_data.player_name,
                     room_name=room_data.room_name,
-                    max_players=room_data.max_players,
-                    creator_id=f"creator-{datetime.now().timestamp()}"
+                    max_players=room_data.max_players
                 )
 
                 self.rooms[room.id] = room
 
                 return RoomResponse(
                     room_id=room.id,
-                    player_id=room.creator_id,
                     room_name=room.name,
-                    creator_id=room.creator_id,
                     current_players=room.current_players,
                     max_players=room.max_players,
                     status=room.status.value
@@ -489,14 +481,11 @@ class WerewolfAPI:
             )
 
     async def initialize_ai_manager(self) -> None:
-        """Initialize AI manager."""
-        try:
-            self.ai_manager = AIManager()
-            await self.ai_manager.initialize()
-            logger.info("AI Manager initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize AI Manager: {e}")
-            raise
+        """Initialize AI manager (lazy initialization - agents created per-player)."""
+        # AI Manager now uses lazy initialization
+        # Agents are created when players join with their individual model configs
+        self.ai_manager = AIManager()
+        logger.info("AI Manager ready (agents will be initialized per-player)")
 
     def create_game_engine(self, room: GameRoom) -> AIGameEngine:
         """Create and store game engine for room."""

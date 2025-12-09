@@ -15,17 +15,7 @@ from .web.websocket import create_socketio_app
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     logger.info("Starting werewolf game backend...")
-
-    # Initialize AI manager
-    api_instance = app.state.api
-    try:
-        await api_instance.initialize_ai_manager()
-        logger.info("AI Manager initialized successfully")
-    except Exception as e:
-        logger.error(f"Failed to initialize AI Manager: {e}")
-        raise
-
-    logger.info("Backend startup complete")
+    logger.info("Backend startup complete (AI agents will be initialized per-player)")
 
     yield
 
@@ -36,7 +26,8 @@ async def lifespan(app: FastAPI):
     if hasattr(app.state, 'websocket_manager'):
         await app.state.websocket_manager.cleanup()
 
-    # Shutdown AI manager
+    # Shutdown AI manager (cleanup any remaining agents)
+    api_instance = app.state.api
     if api_instance.ai_manager:
         await api_instance.ai_manager.shutdown()
 

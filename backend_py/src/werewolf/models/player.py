@@ -79,6 +79,31 @@ class RoleAbilities:
     hunter_shot_target_id: Optional[str] = None
     hunter_death_cause: Optional[str] = None
 
+class ModelProvider(str, Enum):
+    """Supported model providers."""
+    ANTHROPIC = "anthropic"  # Claude models / 智谱 GLM (Anthropic-compatible)
+    OPENAI = "openai"        # GPT models
+    DASHSCOPE = "dashscope"  # Qwen models (阿里通义)
+
+
+@dataclass
+class ModelConfig:
+    """Model configuration for AgentScope.
+    
+    Compatible with AgentScope model initialization:
+    - AnthropicChatModel(model_name, api_key=..., client_kwargs=...)
+    - OpenAIChatModel(model_name, api_key=..., client_kwargs=...)
+    - DashScopeChatModel(model_name, api_key=...)
+    """
+    # Required fields (no default) must come first
+    model_name: str
+    api_key: str
+    # Optional fields with defaults
+    provider: ModelProvider = ModelProvider.ANTHROPIC
+    temperature: float = 0.7
+    stream: bool = False
+    enable_thinking: bool = False
+    client_kwargs: Dict[str, Any] = field(default_factory=dict)  # For base_url etc.
 
 @dataclass
 class AIConfig:
@@ -92,7 +117,7 @@ class AIConfig:
     creativity_level: float = 0.5  # 0-1
     aggressiveness: float = 0.5     # 0-1
     cooperation: float = 0.5        # 0-1
-    model_config: Dict[str, Any] = field(default_factory=dict)
+    model_config: ModelConfig 
 
 
 class PlayerStatus(str, Enum):

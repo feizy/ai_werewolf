@@ -282,26 +282,14 @@ class GameRoom:
     @classmethod
     def create_room(
         cls,
-        creator_name: str,
         room_name: Optional[str] = None,
-        max_players: int = 9,
-        creator_id: Optional[str] = None
+        max_players: int = 9
     ) -> "GameRoom":
-        """Create new room with creator as first player."""
+        """Create new empty room. Players join via add_player()."""
         room = cls(
             name=room_name,
-            creator_id=creator_id,
             max_players=max_players
         )
-
-        # Create creator player
-        creator = Player.create_ai_player(
-            name=creator_name,
-            room_id=room.id,
-            position=0
-        )
-
-        room.add_player(creator)
         return room
 
     @classmethod

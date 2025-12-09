@@ -78,24 +78,28 @@ class BaseGameAgent(ABC):
         self.player_notes: Dict[str, str] = {}
         self.suspicions: Dict[str, float] = {}  # player_id -> suspicion_level
 
-    async def initialize(self, model: Optional[AnthropicChatModel] = None) -> None:
-        """Initialize the AgentScope agent."""
+    async def initialize(self, model: Optional[Any] = None) -> None:
+        """Initialize the AgentScope agent.
+        
+        Args:
+            model: Optional pre-created model instance. If not provided,
+                   will create one based on model_config.
+                   
+        model_config supports:
+            - provider: "zhipu", "openai", "anthropic", "dashscope", "custom"
+            - model_name: e.g. "glm-4", "gpt-4", "claude-3-opus"
+            - api_key: API key for the provider
+            - api_base: Optional custom API endpoint
+        """
         try:
             if self.is_initialized:
                 return
 
             system_prompt = self._get_system_prompt()
 
-            # Use provided model or create default one
+            # Use provided model or create based on config
             if not model:
-                # Extract model_name as positional argument (required by AnthropicChatModel)
-                model_name = self.model_config.pop("model_name", "glm-4.6")
-                model = AnthropicChatModel(
-                    model_name,  # First positional argument
-                    **self.model_config
-                )
-                # Restore model_name to config
-                self.model_config["model_name"] = model_name
+                model = self._create_model_from_config()
 
             # Create the AgentScope agent
             self.agent = ReActAgent(
@@ -109,11 +113,65 @@ class BaseGameAgent(ABC):
             )
 
             self.is_initialized = True
-            logger.info(f"Initialized AgentScope agent {self.name} with role {self.role}")
+            provider = self.model_config.get("provider", "default")
+            model_name = self.model_config.get("model_name", "unknown")
+            logger.info(f"Initialized agent {self.name} with {provider}/{model_name}")
 
         except Exception as e:
             logger.error(f"Failed to initialize AgentScope agent {self.name}: {e}")
             raise
+    
+    def _create_model_from_config(self) -> Any:
+        """Create model instance based on model_config.
+        
+        Supports multiple providers:
+        - zhipu (智谱 GLM): Uses Anthropic-compatible API
+        - openai: Uses OpenAI API
+        - anthropic: Uses Anthropic API  
+        - dashscope (阿里通义): Uses DashScope API
+        - custom: Uses custom endpoint with Anthropic-compatible format
+        """
+        import os
+        from dotenv import load_dotenv
+        load_dotenv()
+        
+        provider = self.model_config.get("provider", "zhipu")
+        model_name = self.model_config.get("model_name")
+        api_key = self.model_config.get("api_key")
+        api_base = self.model_config.get("api_base")
+        
+        # Fall back to environment variables if not provided
+        if not api_key:
+            if provider in ["zhipu", "anthropic"]:
+                api_key = os.getenv("ANTHROPIC_API_KEY")
+            elif provider == "openai":
+                api_key = os.getenv("OPENAI_API_KEY")
+            elif provider == "dashscope":
+                api_key = os.getenv("DASHSCOPE_API_KEY")
+        
+        if not model_name:
+            default_models = {
+                "zhipu": "glm-4",
+                "openai": "gpt-4",
+                "anthropic": "claude-3-opus-20240229",
+                "dashscope": "qwen-max",
+                "custom": "default"
+            }
+            model_name = default_models.get(provider, "glm-4")
+        
+        if not api_key:
+            raise ValueError(f"No API key provided for provider: {provider}")
+        
+        # Build model kwargs
+        model_kwargs = {"api_key": api_key}
+        if api_base:
+            model_kwargs["base_url"] = api_base
+            
+        logger.info(f"Creating model: provider={provider}, model={model_name}")
+        
+        # Currently using AnthropicChatModel which supports Anthropic-compatible APIs
+        # This works for GLM, OpenAI (with compatible endpoint), etc.
+        return AnthropicChatModel(model_name, **model_kwargs)
 
     @abstractmethod
     def _get_system_prompt(self) -> str:
