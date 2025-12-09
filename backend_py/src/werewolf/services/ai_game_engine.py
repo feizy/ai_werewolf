@@ -788,7 +788,7 @@ class AIGameEngine:
                             votes[agent_id] = target_player.id
                             voter = self._get_player_by_id(agent_id)
                             logger.info(f"🗳️ {voter.name} 投票给 {target_player.name}")
-                            voting_record[voter.name] = {voter.player_id: target_player.id}
+                            voting_record[voter.name] = {voter.id: target_player.id}
                 except Exception as e:
                     logger.error(f"Error in sheriff vote from {agent.name}: {e}")
         voting_name = "警长竞选投票"
