@@ -394,7 +394,7 @@ class AIGameEngine:
     async def _start_voting_phase(self) -> None:
         """Start voting phase."""
         logger.info("Starting voting phase")
-
+        voting_record={}
         await self._transition_to_phase(GamePhase.VOTING)
 
         # Get votes from all alive agents
@@ -412,9 +412,12 @@ class AIGameEngine:
                 if action.action_type == "vote" and action.target:
                     votes[agent.player_id] = action.target
                     logger.info(f"{agent.name} votes for {action.target}")
-
+                    voting_record[agent.name] = {agent.player_id: action.target}
             except Exception as e:
                 logger.error(f"Error getting vote from {agent.name}: {e}")
+        voting_name = f"第{self.day_count}天白天放逐投票"
+        for agent in alive_agents:
+            agent.update_voting_history(voting_name, voting_record)
 
         # Process voting results
         await self._process_voting_results(votes)
@@ -768,6 +771,7 @@ class AIGameEngine:
         # Step 3: Non-candidates vote (they don't need to speak, just vote)
         candidate_ids = [c["id"] for c in candidates]
         votes = {}
+        voting_record={}
         for agent_id, agent in self.agents.items():
             if self._is_player_alive(agent_id) and agent_id not in candidate_ids:
                 try:
@@ -784,9 +788,13 @@ class AIGameEngine:
                             votes[agent_id] = target_player.id
                             voter = self._get_player_by_id(agent_id)
                             logger.info(f"🗳️ {voter.name} 投票给 {target_player.name}")
+                            voting_record[voter.name] = {voter.player_id: target_player.id}
                 except Exception as e:
                     logger.error(f"Error in sheriff vote from {agent.name}: {e}")
-        
+        voting_name = "警长竞选投票"
+        for agent_id, agent in self.agents.items():
+            if self._is_player_alive(agent_id):
+                agent.update_voting_history(voting_name, voting_record)
         # Step 4: Count votes and elect sheriff
         if votes:
             vote_counts = {}
@@ -994,7 +1002,9 @@ class AIGameEngine:
     async def _end_game(self, winner: Team, reason: str) -> None:
         """End the game."""
         logger.info(f"Game ended. Winner: {winner.value}, Reason: {reason}")
-
+        #打印获胜玩家
+        winner_players = [p for p in self.room.players if p.team == winner]
+        logger.info(f"获胜玩家: {winner_players}")
         self.session.winner = winner
         self.session.end_reason = reason
         self.session.ended_at = datetime.now()

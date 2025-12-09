@@ -79,7 +79,7 @@ class BaseGameAgent(ABC):
         self.game_history: List[Dict[str, Any]] = []
         self.player_notes: Dict[str, str] = {}
         self.suspicions: Dict[str, float] = {}  # player_id -> suspicion_level
-
+        self.voting_history: Dict[str, Dict[str, str]] = {} # vote name-> [player_id->vote_target]
     async def initialize(self, model: Optional[Any] = None) -> None:
         """Initialize the AgentScope agent.
         
@@ -287,6 +287,10 @@ class BaseGameAgent(ABC):
 已知信息：
 {json.dumps(game_state.known_info, ensure_ascii=False, indent=2)}
 
+投票信息：
+意义是vote_name-> [player->vote_target]
+{json.dumps(self.voting_history, ensure_ascii=False, indent=2)}
+
 请分析当前局势，选择最佳行动。你需要以JSON格式回应，包含以下字段：
 {{
     "action_type": "选择的行动类型",
@@ -442,6 +446,13 @@ class BaseGameAgent(ABC):
         """Update notes about a player."""
         self.player_notes[player_id] = notes
         logger.debug(f"Agent {self.name} updated notes for player {player_id}: {notes}")
+
+    def update_voting_history(self, vote_name: str, voting_record: Dict[str, str]) -> None:
+        """Update voting history."""
+        if vote_name not in self.voting_history:
+            self.voting_history[vote_name] = {}
+        self.voting_history[vote_name].update(voting_record)
+        logger.debug(f"Agent {self.name} updated voting history for {vote_name}: {self.voting_history[vote_name]}")
 
     def get_agent_info(self) -> Dict[str, Any]:
         """Get agent information."""
