@@ -71,16 +71,14 @@ def start_game():
                 "room_id": room_id,
                 "player_name": name,
                 "ai_config": {
-                    "personality": "analytical",
-                    "skill_level": "intermediate",
-                    "language": "zh"
+                    "language": "zh"  # 简化的 AI 配置，LLM 自己处理一切
                 },
                 "model_configuration": {
                     "model_name": "glm-4.6",
                     "api_key": api_key,
                     "provider": "anthropic",  # anthropic / openai / dashscope
-                    "temperature": 0.7,
                     "stream": False,
+                    "enable_thinking": False,
                     "client_kwargs": {}  # 可选: {"base_url": "https://custom-endpoint"}
                 }
             }
@@ -128,7 +126,8 @@ def start_game():
     # 4. 验证AI配置是否正确设置
     print(f"\n验证AI配置...")
     print("注意: ai_config不会在API响应中显示，这是正常的安全设计")
-    print("AI配置和model_config已正确传递给游戏引擎")
+    print("简化后的AI配置和model_config已正确传递给游戏引擎")
+    print("LLM 将根据角色设定自主处理所有游戏决策")
 
     # 5. 开始游戏
     print(f"\n尝试开始游戏...")
@@ -146,7 +145,7 @@ def start_game():
             print(f"  房间ID: {room_id}")
             print(f"  API地址: {base_url}/rooms/{room_id}")
             print(f"  WebSocket地址: ws://localhost:8001")
-            print(f"  AI玩家已配置个性化的AI设置和模型参数")
+            print(f"  AI玩家使用统一的模型配置，完全依赖LLM自主决策")
 
             return True
         else:

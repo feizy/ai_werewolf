@@ -3,7 +3,7 @@
 import asyncio
 import json
 import time
-from typing import Dict, List, Optional, Any, Callable
+from typing import Dict, List, Optional, Any, Callable, TYPE_CHECKING
 from datetime import datetime
 
 from loguru import logger
@@ -15,6 +15,9 @@ from ..models.events import EventService
 from ..agents.agent_factory import AgentFactory
 from ..agents.base_agent import GameState, AgentAction
 
+if TYPE_CHECKING:
+    from .ai_manager import AIManager
+
 
 class AIGameEngine:
     """AI-powered game engine that uses ReactAgents for all decisions."""
@@ -22,10 +25,12 @@ class AIGameEngine:
     def __init__(
         self,
         room: GameRoom,
-        event_service: EventService
+        event_service: EventService,
+        ai_manager: "AIManager" = None
     ):
         self.room = room
         self.event_service = event_service
+        self.ai_manager = ai_manager  # Unified model manager
 
         # Game state
         self.session: Optional[GameSession] = None
@@ -54,8 +59,11 @@ class AIGameEngine:
             # Assign roles to players
             self.room.assign_roles()
 
-            # Create AI agents for all players
-            agent_data = AgentFactory.create_all_agents(self.room.players)
+            # Create AI agents for all players (use AIManager for model creation)
+            agent_data = AgentFactory.create_all_agents(
+                self.room.players, 
+                ai_manager=self.ai_manager
+            )
             self.agents = agent_data["agents"]
             self.team_info = agent_data["team_info"]
 
@@ -116,10 +124,10 @@ class AIGameEngine:
     async def _process_werewolf_night(self) -> None:
         """Process werewolf night phase - brief discussion, leader decides."""
         werewolf_agents = [
-            agent for agent_id, agent in self.agents.items()
+                agent for agent_id, agent in self.agents.items()
             if agent.role == Role.WEREWOLF and self._is_player_alive(agent_id)
-        ]
-        
+            ]
+
         if not werewolf_agents:
             return
         
@@ -272,9 +280,9 @@ class AIGameEngine:
                 else:
                     logger.info(f"🧪 女巫选择不使用药水")
                     print(f"[女巫] 女巫选择不使用药水")
-                    
+
             except Exception as e:
-                logger.error(f"Error in witch action for {agent.name}: {e}")
+                    logger.error(f"Error in witch action for {agent.name}: {e}")
 
     async def _start_day_phase(self) -> None:
         """Start day phase."""

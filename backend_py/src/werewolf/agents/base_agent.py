@@ -11,7 +11,7 @@ from agentscope.message import Msg
 from agentscope.model import AnthropicChatModel
 from agentscope.formatter import AnthropicChatFormatter
 from loguru import logger
-from ..models.player import Role, PersonalityType, SkillLevel
+from ..models.player import Role
 from agentscope.memory import InMemoryMemory
 
 @dataclass
@@ -51,23 +51,25 @@ class AgentAction:
 
 
 class BaseGameAgent(ABC):
-    """Base class for game agents using AgentScope."""
+    """Base class for game agents using AgentScope.
+    
+    Simplified: LLM handles all gameplay decisions without artificial personality/skill settings.
+    Model is created by AIManager and passed in, or created lazily from model_config.
+    """
 
     def __init__(
         self,
         player_id: str,
         name: str,
         role: Role,
-        personality: PersonalityType,
-        skill_level: SkillLevel,
-        model_config: Optional[Dict[str, Any]] = None
+        model_config: Optional[Dict[str, Any]] = None,
+        model: Optional[Any] = None  # Pre-created model from AIManager
     ):
         self.player_id = player_id
         self.name = name
         self.role = role
-        self.personality = personality
-        self.skill_level = skill_level
         self.model_config = model_config or {}
+        self._model = model  # Store pre-created model
 
         # AgentScope agent instance
         self.agent = None
@@ -82,14 +84,10 @@ class BaseGameAgent(ABC):
         """Initialize the AgentScope agent.
         
         Args:
-            model: Optional pre-created model instance. If not provided,
-                   will create one based on model_config.
-                   
-        model_config supports:
-            - provider: "zhipu", "openai", "anthropic", "dashscope", "custom"
-            - model_name: e.g. "glm-4", "gpt-4", "claude-3-opus"
-            - api_key: API key for the provider
-            - api_base: Optional custom API endpoint
+            model: Optional pre-created model instance. Priority:
+                   1. Passed model parameter
+                   2. self._model (set in __init__ from AIManager)
+                   3. Create from model_config (fallback)
         """
         try:
             if self.is_initialized:
@@ -97,25 +95,45 @@ class BaseGameAgent(ABC):
 
             system_prompt = self._get_system_prompt()
 
-            # Use provided model or create based on config
+            # Priority: passed model > stored model > create from config
+            if not model:
+                model = self._model
             if not model:
                 model = self._create_model_from_config()
 
+            # Select formatter based on model provider
+            from agentscope.formatter import OpenAIChatFormatter, DashScopeChatFormatter
+            from ..models.player import ModelProvider
+            
+            provider = self.model_config.get("provider", "anthropic")
+            if isinstance(provider, str):
+                try:
+                    provider = ModelProvider(provider)
+                except ValueError:
+                    provider = ModelProvider.ANTHROPIC
+            
+            if provider == ModelProvider.OPENAI:
+                formatter = OpenAIChatFormatter()
+            elif provider == ModelProvider.DASHSCOPE:
+                formatter = DashScopeChatFormatter()
+            else:
+                formatter = AnthropicChatFormatter()
+            
             # Create the AgentScope agent
             self.agent = ReActAgent(
                 name=f"{self.name}_{self.role.value}",
                 sys_prompt=system_prompt,
                 model=model,
-                formatter=AnthropicChatFormatter(),
+                formatter=formatter,
                 max_iters=3,
                 memory=InMemoryMemory(),
                 parallel_tool_calls=False
             )
 
             self.is_initialized = True
-            provider = self.model_config.get("provider", "default")
+            provider_name = self.model_config.get("provider", "default")
             model_name = self.model_config.get("model_name", "unknown")
-            logger.info(f"Initialized agent {self.name} with {provider}/{model_name}")
+            logger.info(f"Initialized agent {self.name} with {provider_name}/{model_name}")
 
         except Exception as e:
             logger.error(f"Failed to initialize AgentScope agent {self.name}: {e}")
@@ -124,79 +142,50 @@ class BaseGameAgent(ABC):
     def _create_model_from_config(self) -> Any:
         """Create model instance based on model_config.
         
-        Supports multiple providers:
-        - zhipu (智谱 GLM): Uses Anthropic-compatible API
-        - openai: Uses OpenAI API
-        - anthropic: Uses Anthropic API  
-        - dashscope (阿里通义): Uses DashScope API
-        - custom: Uses custom endpoint with Anthropic-compatible format
+        Supports multiple providers via ModelProvider enum.
+        This is a fallback - normally model is created by AgentFactory.
         """
         import os
         from dotenv import load_dotenv
+        from agentscope.model import OpenAIChatModel, DashScopeChatModel
+        from ..models.player import ModelProvider
         load_dotenv()
         
-        provider = self.model_config.get("provider", "zhipu")
-        model_name = self.model_config.get("model_name")
+        provider = self.model_config.get("provider", "anthropic")
+        model_name = self.model_config.get("model_name", "glm-4")
         api_key = self.model_config.get("api_key")
-        api_base = self.model_config.get("api_base")
+        stream = self.model_config.get("stream", False)
+        client_kwargs = self.model_config.get("client_kwargs", {})
         
         # Fall back to environment variables if not provided
         if not api_key:
-            if provider in ["zhipu", "anthropic"]:
-                api_key = os.getenv("ANTHROPIC_API_KEY")
-            elif provider == "openai":
-                api_key = os.getenv("OPENAI_API_KEY")
-            elif provider == "dashscope":
-                api_key = os.getenv("DASHSCOPE_API_KEY")
-        
-        if not model_name:
-            default_models = {
-                "zhipu": "glm-4",
-                "openai": "gpt-4",
-                "anthropic": "claude-3-opus-20240229",
-                "dashscope": "qwen-max",
-                "custom": "default"
-            }
-            model_name = default_models.get(provider, "glm-4")
+            api_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("OPENAI_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
         
         if not api_key:
             raise ValueError(f"No API key provided for provider: {provider}")
         
-        # Build model kwargs
-        model_kwargs = {"api_key": api_key}
-        if api_base:
-            model_kwargs["base_url"] = api_base
-            
         logger.info(f"Creating model: provider={provider}, model={model_name}")
         
-        # Currently using AnthropicChatModel which supports Anthropic-compatible APIs
-        # This works for GLM, OpenAI (with compatible endpoint), etc.
-        return AnthropicChatModel(model_name, **model_kwargs)
+        # Normalize provider to enum if string
+        if isinstance(provider, str):
+            provider = ModelProvider(provider)
+        
+        # Create model based on provider
+        if provider == ModelProvider.ANTHROPIC:
+            return AnthropicChatModel(model_name, api_key=api_key, stream=stream)
+        elif provider == ModelProvider.OPENAI:
+            return OpenAIChatModel(model_name, api_key=api_key,stream=stream, client_kwargs=client_kwargs)
+        elif provider == ModelProvider.DASHSCOPE:
+            return DashScopeChatModel(model_name, api_key=api_key,stream=stream)
+        else:
+            # Default to Anthropic
+            return AnthropicChatModel(model_name, api_key=api_key,stream=stream)
 
     @abstractmethod
     def _get_system_prompt(self) -> str:
         """Get system prompt for the agent."""
         pass
 
-    def _get_temperature(self) -> float:
-        """Get temperature based on skill level and personality."""
-        # More skilled agents have lower temperature for more consistent responses
-        skill_temps = {
-            SkillLevel.BEGINNER: 0.9,
-            SkillLevel.INTERMEDIATE: 0.7,
-            SkillLevel.ADVANCED: 0.5,
-            SkillLevel.EXPERT: 0.3
-        }
-
-        base_temp = skill_temps.get(self.skill_level, 0.7)
-
-        # Adjust based on personality
-        if "aggressive" in self.personality.value:
-            base_temp += 0.1
-        elif "cautious" in self.personality.value:
-            base_temp -= 0.1
-
-        return max(0.1, min(1.0, base_temp))
 
     async def make_decision(
         self,
@@ -275,10 +264,9 @@ class BaseGameAgent(ABC):
 现在是狼人杀游戏第{game_state.day_count}天，当前阶段：{game_state.phase}
 
 你的信息：
+- 玩家名：{self.name}
 - 身份：{game_state.my_role if game_state.my_role else self.role.value}
 - 状态：{game_state.my_status}
-- 技能等级：{self.skill_level.value}
-- 性格特点：{self.personality.value}
 
 存活玩家：
 """
@@ -461,8 +449,6 @@ class BaseGameAgent(ABC):
             "player_id": self.player_id,
             "name": self.name,
             "role": self.role.value,
-            "personality": self.personality.value,
-            "skill_level": self.skill_level.value,
             "is_initialized": self.is_initialized,
             "suspicions": self.suspicions,
             "player_notes": self.player_notes

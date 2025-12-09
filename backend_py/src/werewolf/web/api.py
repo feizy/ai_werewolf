@@ -286,12 +286,12 @@ class WerewolfAPI:
             # Find or create game engine
             game_engine = self.game_engines.get(game_id)
             if not game_engine:
-                # Create game engine for this room
+                # Create game engine for this room (with AIManager for unified model creation)
                 from ..services.ai_game_engine import AIGameEngine
                 from ..models.events import EventService
 
                 event_service = EventService()
-                game_engine = AIGameEngine(room, event_service)
+                game_engine = AIGameEngine(room, event_service, ai_manager=self.ai_manager)
                 self.game_engines[game_id] = game_engine
                 logger.info(f"Created game engine for room {game_id}")
 
@@ -491,7 +491,8 @@ class WerewolfAPI:
         """Create and store game engine for room."""
         game_engine = AIGameEngine(
             room=room,
-            event_service=self.event_service
+            event_service=self.event_service,
+            ai_manager=self.ai_manager
         )
 
         self.game_engines[room.id] = game_engine

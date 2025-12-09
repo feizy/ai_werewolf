@@ -22,39 +22,8 @@ class Role(str, Enum):
     HUNTER = "hunter"
 
 
-class PersonalityType(str, Enum):
-    """AI personality types."""
-    AGGRESSIVE = "aggressive"
-    ANALYTICAL = "analytical"
-    DECEPTIVE = "deceptive"
-    CAUTIOUS = "cautious"
-    LEADER = "leader"
-    FOLLOWER = "follower"
-    LOGICAL = "logical"
-
-
-class SkillLevel(str, Enum):
-    """AI skill levels."""
-    BEGINNER = "beginner"
-    INTERMEDIATE = "intermediate"
-    ADVANCED = "advanced"
-    EXPERT = "expert"
-
-
-class ResponseTime(str, Enum):
-    """AI response time settings."""
-    IMMEDIATE = "immediate"  # 0.5-2秒
-    FAST = "fast"           # 2-5秒
-    NORMAL = "normal"       # 5-10秒
-    SLOW = "slow"           # 10-20秒
-
-
-class StrategyType(str, Enum):
-    """AI strategy types."""
-    LOGICAL = "logical"
-    EMOTIONAL = "emotional"
-    BALANCED = "balanced"
-    RANDOM = "random"
+# 已移除 PersonalityType, SkillLevel, ResponseTime, StrategyType
+# AI 玩家完全依赖 LLM 自身能力进行游戏
 
 
 @dataclass
@@ -100,24 +69,15 @@ class ModelConfig:
     api_key: str
     # Optional fields with defaults
     provider: ModelProvider = ModelProvider.ANTHROPIC
-    temperature: float = 0.7
     stream: bool = False
     enable_thinking: bool = False
     client_kwargs: Dict[str, Any] = field(default_factory=dict)  # For base_url etc.
 
 @dataclass
 class AIConfig:
-    """AI player configuration."""
-    agent_type: str = "werewolf_player"
-    personality: PersonalityType = PersonalityType.ANALYTICAL
-    skill_level: SkillLevel = SkillLevel.INTERMEDIATE
-    response_time: ResponseTime = ResponseTime.NORMAL
-    strategy: StrategyType = StrategyType.LOGICAL
+    """AI player configuration - simplified, LLM handles everything."""
+    model_config: Optional[ModelConfig] = None
     language: str = "zh"  # zh or en
-    creativity_level: float = 0.5  # 0-1
-    aggressiveness: float = 0.5     # 0-1
-    cooperation: float = 0.5        # 0-1
-    model_config: ModelConfig 
 
 
 class PlayerStatus(str, Enum):
@@ -340,28 +300,27 @@ class Player:
         ai_config: Optional[Dict[str, Any]] = None,
         model_config: Optional[Dict[str, Any]] = None
     ) -> "Player":
-        """Create AI player with optional role, AI config, and model config."""
-        ai_config_dict = ai_config.copy() if ai_config else {}
-        model_config_dict = model_config or {}
-
-        # Convert string values to enum types
-        if "personality" in ai_config_dict and isinstance(ai_config_dict["personality"], str):
-            ai_config_dict["personality"] = PersonalityType(ai_config_dict["personality"])
-        if "skill_level" in ai_config_dict and isinstance(ai_config_dict["skill_level"], str):
-            ai_config_dict["skill_level"] = SkillLevel(ai_config_dict["skill_level"])
-        if "response_time" in ai_config_dict and isinstance(ai_config_dict["response_time"], str):
-            ai_config_dict["response_time"] = ResponseTime(ai_config_dict["response_time"])
-        if "strategy" in ai_config_dict and isinstance(ai_config_dict["strategy"], str):
-            ai_config_dict["strategy"] = StrategyType(ai_config_dict["strategy"])
-
-        # Add model_config to ai_config
-        ai_config_dict["model_config"] = model_config_dict
+        """Create AI player with model config. LLM handles all gameplay decisions."""
+        # Build model_config if provided
+        model_cfg = None
+        if model_config and model_config.get("model_name") and model_config.get("api_key"):
+            model_cfg = ModelConfig(
+                model_name=model_config["model_name"],
+                api_key=model_config["api_key"],
+                provider=ModelProvider(model_config.get("provider", "anthropic")),
+                stream=model_config.get("stream", False),
+                enable_thinking=model_config.get("enable_thinking", False),
+                client_kwargs=model_config.get("client_kwargs", {})
+            )
+        
+        # Build ai_config
+        language = ai_config.get("language", "zh") if ai_config else "zh"
 
         player = cls(
             name=name,
             room_id=room_id,
             position=position,
-            ai_config=AIConfig(**ai_config_dict)
+            ai_config=AIConfig(model_config=model_cfg, language=language)
         )
 
         if role:
