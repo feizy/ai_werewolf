@@ -730,7 +730,11 @@ class AIGameEngine:
             if action.content:
                 logger.info(f"💀 {player.name} 的遗言: {action.content}")
                 print(f"[遗言] {player.name}: {action.content}")
-                
+                #加入玩家memory
+                msg = Msg(role="system", content=f"{player.name} 遗言: {action.content}", name="system")
+                for agent_id, agent in self.agents.items():
+                    if self._is_player_alive(agent_id):
+                        await agent.agent.memory.add(msg)
                 await self.event_service.record_event(
                     session_id=self.session.id,
                     event_type=EventType.PLAYER_SPEECH,

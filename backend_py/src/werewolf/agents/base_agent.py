@@ -340,9 +340,12 @@ class BaseGameAgent(ABC):
             logger.error(f"Error querying AgentScope agent {self.name}: {e}")
             raise
 
-    def _parse_agent_response(self, response: str) -> AgentAction:
+    def _parse_agent_response(self, response: Any) -> AgentAction:
         """Parse agent response into AgentAction."""
         try:
+            # Ensure response is string to avoid TypeError when response is bool or other types
+            if not isinstance(response, str):
+                response = str(response)
             # Extract JSON from markdown code block if present
             json_str = response.strip()
             
