@@ -17,7 +17,6 @@ from ..models.player import Player, Role, ModelConfig
 from ..models.room import GameRoom, RoomStatus
 from ..models.game import GameSession, GamePhase, Team
 from ..models.events import EventService
-from ..services.ai_manager import AIManager
 from ..services.ai_game_engine import AIGameEngine
 
 
@@ -110,7 +109,6 @@ class WerewolfAPI:
 
         self.rooms: Dict[str, GameRoom] = {}
         self.game_engines: Dict[str, AIGameEngine] = {}
-        self.ai_manager: Optional[AIManager] = None
         self.event_service: EventService = EventService()
         
         self._setup_middleware()
@@ -286,12 +284,12 @@ class WerewolfAPI:
             # Find or create game engine
             game_engine = self.game_engines.get(game_id)
             if not game_engine:
-                # Create game engine for this room (with AIManager for unified model creation)
+                # Create game engine for this room
                 from ..services.ai_game_engine import AIGameEngine
                 from ..models.events import EventService
 
                 event_service = EventService()
-                game_engine = AIGameEngine(room, event_service, ai_manager=self.ai_manager)
+                game_engine = AIGameEngine(room, event_service)
                 self.game_engines[game_id] = game_engine
                 logger.info(f"Created game engine for room {game_id}")
 
@@ -480,12 +478,6 @@ class WerewolfAPI:
                 content={"error": "Internal Server Error", "message": error_msg},
             )
 
-    async def initialize_ai_manager(self) -> None:
-        """Initialize AI manager (lazy initialization - agents created per-player)."""
-        # AI Manager now uses lazy initialization
-        # Agents are created when players join with their individual model configs
-        self.ai_manager = AIManager()
-        logger.info("AI Manager ready (agents will be initialized per-player)")
 
     def create_game_engine(self, room: GameRoom) -> AIGameEngine:
         """Create and store game engine for room."""
@@ -544,14 +536,6 @@ if __name__ == "__main__":
     # Run the server
     app = create_app()
 
-    # Initialize AI manager
-    async def init_ai():
-        api_instance = WerewolfAPI()
-        await api_instance.initialize_ai_manager()
-
-    # Run startup tasks
-    import asyncio
-    asyncio.run(init_ai())
 
     # Run server
     uvicorn.run(app.app, host="0.0.0.0", port=8000, reload=True)

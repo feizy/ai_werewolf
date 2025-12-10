@@ -11,7 +11,6 @@ __email__ = "team@aiarena.dev"
 from .models.player import Player, Role, Team
 from .models.room import GameRoom
 from .models.game import GameSession, GamePhase, EventType
-from .services.ai_manager import AIManager
 from .services.ai_game_engine import AIGameEngine
 from .agents.agent_factory import AgentFactory
 
@@ -23,7 +22,6 @@ __all__ = [
     "GameSession",
     "GamePhase",
     "EventType",
-    "AIManager",
     "AIGameEngine",
     "AgentFactory",
 ]

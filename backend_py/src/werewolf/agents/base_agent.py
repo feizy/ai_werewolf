@@ -54,7 +54,7 @@ class BaseGameAgent(ABC):
     """Base class for game agents using AgentScope.
     
     Simplified: LLM handles all gameplay decisions without artificial personality/skill settings.
-    Model is created by AIManager and passed in, or created lazily from model_config.
+    Model is created by AgentFactory and passed in, or created lazily from model_config.
     """
 
     def __init__(
@@ -63,7 +63,7 @@ class BaseGameAgent(ABC):
         name: str,
         role: Role,
         model_config: Optional[Dict[str, Any]] = None,
-        model: Optional[Any] = None  # Pre-created model from AIManager
+        model: Optional[Any] = None  # Pre-created model from AgentFactory
     ):
         self.player_id = player_id
         self.name = name
@@ -86,7 +86,7 @@ class BaseGameAgent(ABC):
         Args:
             model: Optional pre-created model instance. Priority:
                    1. Passed model parameter
-                   2. self._model (set in __init__ from AIManager)
+                   2. self._model (set in __init__ from AgentFactory)
                    3. Create from model_config (fallback)
         """
         try:

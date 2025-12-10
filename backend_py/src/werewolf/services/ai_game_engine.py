@@ -15,8 +15,7 @@ from ..models.events import EventService
 from ..agents.agent_factory import AgentFactory
 from ..agents.base_agent import GameState, AgentAction
 from agentscope.message import Msg
-if TYPE_CHECKING:
-    from .ai_manager import AIManager
+
 
 
 class AIGameEngine:
@@ -25,12 +24,10 @@ class AIGameEngine:
     def __init__(
         self,
         room: GameRoom,
-        event_service: EventService,
-        ai_manager: "AIManager" = None
+        event_service: EventService
     ):
         self.room = room
         self.event_service = event_service
-        self.ai_manager = ai_manager  # Unified model manager
 
         # Game state
         self.session: Optional[GameSession] = None
@@ -59,13 +56,19 @@ class AIGameEngine:
             # Assign roles to players
             self.room.assign_roles()
 
-            # Create AI agents for all players (use AIManager for model creation)
-            agent_data = AgentFactory.create_all_agents(
-                self.room.players, 
-                ai_manager=self.ai_manager
-            )
+            # Create AI agents for all players
+            agent_data = AgentFactory.create_all_agents(self.room.players)
             self.agents = agent_data["agents"]
             self.team_info = agent_data["team_info"]
+
+            # Initialize all agents (create AgentScope ReactAgent instances)
+            logger.info("Initializing AgentScope agents...")
+            for agent_id, agent in self.agents.items():
+                try:
+                    await agent.initialize()
+                    logger.debug(f"Initialized agent for {agent.name}")
+                except Exception as e:
+                    logger.error(f"Failed to initialize agent for {agent.name}: {e}")
 
             # Create game session
             self.session = GameSession(self.room.id, self.room.players)
@@ -118,12 +121,16 @@ class AIGameEngine:
             #clear all players' memory
             for agent_id, agent in self.agents.items():
                 await agent.agent.memory.clear()
-            #取出所有之前日的summary，存入所有玩家memory       
+            #取出所有之前日的summary，存入所有玩家memory
             for event in self.session.events:
                 if event.event_type == EventType.DAILY_SUMMARY:
                     msg = Msg(role="system", content=event.content, name="system")
                     for agent_id, agent in self.agents.items():
-                        await agent.agent.memory.add(msg)
+                        if agent.agent:
+                            try:
+                                await agent.agent.memory.add(msg)
+                            except Exception as e:
+                                logger.warning(f"Failed to add memory to agent {agent.name}: {e}")
 
         await self._transition_to_phase(GamePhase.NIGHT)
 
@@ -715,8 +722,11 @@ class AIGameEngine:
         #加入memory
         msg = Msg(role="system", content=result, name="system")
         for agent_id, agent in self.agents.items():
-            if self._is_player_alive(agent_id):
-                await agent.agent.memory.add(msg)
+            if self._is_player_alive(agent_id) and agent.agent:
+                try:
+                    await agent.agent.memory.add(msg)
+                except Exception as e:
+                    logger.warning(f"Failed to add memory to agent {agent.name}: {e}")
 
     async def _process_last_words(self, player_id: str, death_reason: str) -> None:
         """Process last words for a dead player."""
@@ -740,8 +750,11 @@ class AIGameEngine:
                 #加入玩家memory
                 msg = Msg(role="system", content=f"{player.name} 遗言: {action.content}", name="system")
                 for agent_id, agent in self.agents.items():
-                    if self._is_player_alive(agent_id):
-                        await agent.agent.memory.add(msg)
+                    if self._is_player_alive(agent_id) and agent.agent:
+                        try:
+                            await agent.agent.memory.add(msg)
+                        except Exception as e:
+                            logger.warning(f"Failed to add memory to agent {agent.name}: {e}")
                 await self.event_service.record_event(
                     session_id=self.session.id,
                     event_type=EventType.PLAYER_SPEECH,
