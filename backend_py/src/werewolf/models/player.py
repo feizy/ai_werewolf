@@ -114,6 +114,7 @@ class Player:
     # Game specific attributes
     role_abilities: RoleAbilities = field(default_factory=RoleAbilities)
     voting_weight: float = 1.0
+    is_sheriff: bool = False
 
     def __post_init__(self):
         """Initialize role abilities after role is set."""
@@ -126,10 +127,10 @@ class Player:
         return self.status == PlayerStatus.ALIVE
 
     @property
-    def team(self) -> Team:
-        """Get player's team based on role."""
+    def team(self) -> Optional[Team]:
+        """Get player's team based on role. Returns None if role not assigned yet."""
         if not self.role:
-            raise ValueError("Role not assigned")
+            return None
 
         if self.role == Role.WEREWOLF:
             return Team.WEREWOLF
@@ -235,10 +236,12 @@ class Player:
     # Sheriff methods
     def set_as_sheriff(self) -> None:
         """Set player as sheriff."""
+        self.is_sheriff = True
         self.voting_weight = 1.5
 
     def remove_sheriff(self) -> None:
         """Remove sheriff status."""
+        self.is_sheriff = False
         self.voting_weight = 1.0
 
     # Utility methods
@@ -272,7 +275,13 @@ class Player:
             "last_active_at": self.last_active_at.isoformat(),
             "voting_weight": self.voting_weight,
             "is_alive": self.is_alive,
-            "team": self.team.value if self.role else None,
+            "team": self.team.value if self.team else None,
+            "is_sheriff": self.is_sheriff,
+            "role_abilities": {
+                "witch_has_antidote": self.role_abilities.witch_has_antidote,
+                "witch_has_poison": self.role_abilities.witch_has_poison,
+                "hunter_can_shoot": self.role_abilities.hunter_can_shoot,
+            } if self.role else None,
         }
 
     def get_public_info(self) -> Dict[str, Any]:
@@ -312,7 +321,7 @@ class Player:
                 enable_thinking=model_config.get("enable_thinking", False),
                 client_kwargs=model_config.get("client_kwargs", {})
             )
-        
+
         # Build ai_config
         language = ai_config.get("language", "zh") if ai_config else "zh"
 

@@ -51,7 +51,7 @@ export interface Room {
   maxPlayers: number;
   isFull: boolean;
   canStartGame: boolean;
-  status: RoomStatus;
+  status: string;
   players: RoomPlayer[];
 }
 

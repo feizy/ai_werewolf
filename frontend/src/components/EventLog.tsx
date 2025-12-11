@@ -101,6 +101,10 @@ export const EventLog: React.FC<EventLogProps> = ({
 }) => {
   const listRef = useRef<HTMLDivElement>(null);
 
+  // 调试信息
+  console.log('📝 EventLog组件接收到的事件数量:', events.length);
+  console.log('📝 事件列表:', events);
+
   // 过滤事件
   const filteredEvents = filters.length === 0
     ? events

@@ -49,6 +49,8 @@ class RoomStatusResponse(BaseModel):
     current_players: int
     max_players: int
     status: str
+    is_full: bool
+    can_start_game: bool
     players: List[Dict[str, Any]]
 
 class GameStart(BaseModel):
@@ -65,6 +67,9 @@ class GameStateResponse(BaseModel):
     start_time: str
     end_time: Optional[str]
     duration: float
+    events: List[Dict[str, Any]]
+    is_running: bool
+    agent_info: Optional[Dict[str, Any]] = None
 
 class SystemStatus(BaseModel):
     server: Dict[str, Any]
@@ -210,6 +215,8 @@ class WerewolfAPI:
                     current_players=room.current_players,
                     max_players=room.max_players,
                     status=room.status.value,
+                    is_full=room.is_full,
+                    can_start_game=room.can_start_game,
                     players=[{
                 "id": p.id,
                 "name": p.name,
@@ -222,7 +229,7 @@ class WerewolfAPI:
                 "last_active_at": p.last_active_at,
                 "voting_weight": p.voting_weight,
                 "is_alive": p.is_alive,
-                "team": p.team.value if p.team else None
+                "team": p.team.value if p.team else None  # team属性在role分配后自动计算
             } for p in room.players]
                 )
 
@@ -269,6 +276,44 @@ class WerewolfAPI:
 
             return game_engine.get_game_summary()
 
+        @self.app.get("/games/{game_id}/events")
+        async def get_game_events(game_id: str):
+            """Get all events for a game."""
+            # First try to find by room_id (game_engines key)
+            game_engine = self.game_engines.get(game_id)
+            session_id = game_id
+
+            # If not found, try to find by session id
+            if not game_engine:
+                for engine in self.game_engines.values():
+                    if engine.get_session() and engine.get_session().id == game_id:
+                        game_engine = engine
+                        session_id = game_id
+                        break
+
+            if not game_engine:
+                # Try to get events directly from event_service (fallback)
+                session_id = game_id
+                events = self.event_service.get_session_events(session_id)
+                if not events:
+                    raise HTTPException(status_code=404, detail="Game events not found")
+            else:
+                # Get session from game engine
+                session = game_engine.get_session()
+                if not session:
+                    raise HTTPException(status_code=404, detail="Game session not found")
+                session_id = session.id
+
+                # Get events from EventService (primary source)
+                events = self.event_service.get_session_events(session_id)
+
+                # If no events in EventService, fall back to session events
+                if not events:
+                    events = session.events
+
+            # Convert events to dict format for response
+            return [event.to_dict() for event in events]
+
         @self.app.post("/games/{game_id}/start")
         async def start_game(game_id: str):
             """Start game in room."""
@@ -286,26 +331,114 @@ class WerewolfAPI:
             if not game_engine:
                 # Create game engine for this room
                 from ..services.ai_game_engine import AIGameEngine
-                from ..models.events import EventService
 
-                event_service = EventService()
-                game_engine = AIGameEngine(room, event_service)
+                # Use the shared EventService instance
+                game_engine = AIGameEngine(room, self.event_service)
                 self.game_engines[game_id] = game_engine
                 logger.info(f"Created game engine for room {game_id}")
 
             try:
-                # Start game
-                session = await game_engine.start_game()
+                # Start game asynchronously in background
+                import asyncio
+                asyncio.create_task(self._start_game_background(game_engine))
 
                 return {
-                    "game_id": session.id,
-                    "status": "started",
-                    "message": "Game started successfully"
+                    "game_id": game_id,
+                    "status": "starting",
+                    "message": "Game is starting..."
                 }
 
             except Exception as e:
                 logger.error(f"Error starting game: {e}")
                 raise HTTPException(status_code=500, detail="Failed to start game")
+
+        @self.app.post("/games/{game_id}/stop")
+        async def stop_game(game_id: str):
+            """Stop/abort game."""
+            # Find game engine
+            game_engine = self.game_engines.get(game_id)
+
+            # If not found, try to find by session id
+            if not game_engine:
+                for engine in self.game_engines.values():
+                    if engine.get_session() and engine.get_session().id == game_id:
+                        game_engine = engine
+                        break
+
+            if not game_engine:
+                raise HTTPException(status_code=404, detail="Game not found")
+
+            try:
+                # Stop the game engine
+                logger.info(f"Stopping game {game_id}")
+                game_engine.stop_game()
+
+                # Remove from active engines
+                del self.game_engines[game_id]
+
+                return {
+                    "game_id": game_id,
+                    "status": "stopped",
+                    "message": "Game stopped successfully"
+                }
+            except Exception as e:
+                logger.error(f"Error stopping game {game_id}: {e}")
+                raise HTTPException(status_code=500, detail="Failed to stop game")
+
+        @self.app.delete("/games/{game_id}")
+        async def cleanup_game(game_id: str, force: bool = False):
+            """Clean up game resources.
+
+        Args:
+            game_id: Game or room ID
+            force: If True, force cleanup even if game is not finished
+        """
+            # Find and remove game
+            game_engine = self.game_engines.get(game_id)
+
+            if not game_engine:
+                # Try to find by session id
+                for engine_id, engine in self.game_engines.items():
+                    if engine.get_session() and engine.get_session().id == game_id:
+                        game_engine = engine
+                        game_id = engine_id
+                        break
+
+            if not game_engine:
+                raise HTTPException(status_code=404, detail="Game not found")
+
+            try:
+                session = game_engine.get_session()
+
+                # Check if game is finished, unless force is True
+                if not force and session and not session.winner:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Game is not finished. Use force=true to force cleanup."
+                    )
+
+                logger.info(f"Cleaning up game {game_id} (force={force})")
+
+                # Stop game if it's still running
+                if game_engine.is_running:
+                    game_engine.stop_game()
+
+                # Clean up resources
+                if hasattr(game_engine, 'cleanup'):
+                    await game_engine.cleanup()
+
+                # Remove from active engines
+                del self.game_engines[game_id]
+
+                return {
+                    "game_id": game_id,
+                    "status": "cleaned",
+                    "force": force,
+                    "message": f"Game resources {'force ' if force else ''}cleaned up successfully"
+                }
+            except Exception as e:
+                logger.error(f"Error cleaning up game {game_id}: {e}")
+                raise HTTPException(status_code=500, detail="Failed to cleanup game")
 
         # Replay system
         @self.app.post("/replays", response_model=ReplayResponse)
@@ -507,15 +640,19 @@ class WerewolfAPI:
     async def _on_game_end(self, winner: Team) -> None:
         """Handle game end."""
         logger.info(f"Game ended. Winner: {winner}")
+        # Note: Cleanup will only happen when user explicitly exits or component unmounts
+        # This allows users to review the game results as long as they keep the page open
 
-        # Clean up game engine
-        engines_to_remove = []
-        for room_id, engine in self.game_engines.items():
-            if engine.get_session() and engine.get_session().winner == winner:
-                engines_to_remove.append(room_id)
-
-        for room_id in engines_to_remove:
-            del self.game_engines[room_id]
+    
+    async def _start_game_background(self, game_engine: AIGameEngine) -> None:
+        """Start game in background."""
+        try:
+            logger.info(f"Starting game in background for room {game_engine.room.id}")
+            session = await game_engine.start_game()
+            logger.info(f"Game started successfully. Session ID: {session.id}")
+        except Exception as e:
+            logger.error(f"Failed to start game in background: {e}")
+            # TODO: Notify frontend of the error
 
     def get_app(self) -> FastAPI:
         """Get FastAPI application instance."""

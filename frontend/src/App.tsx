@@ -7,8 +7,8 @@ import { EventLog } from './components/EventLog';
 import { PhaseBanner } from './components/PhaseBanner';
 import { GameStats } from './components/GameStats';
 import { useGameStore } from './store/gameStore';
-import { usePolling } from './hooks/usePolling';
-import { checkHealth, createRoom, joinRoom, startGame } from './services/api';
+import { usePolling, convertGameState } from './hooks/usePolling';
+import { checkHealth, createRoom, joinRoom, startGame, cleanupGame, API_BASE } from './services/api';
 import { LLMConfig } from './types/game';
 
 // Provider options for room creation
@@ -63,10 +63,8 @@ const App: React.FC = () => {
     setRoom,
     setCurrentView,
     addPlayerToRoom,
+    setGameState,
   } = useGameStore();
-
-  // 使用轮询获取游戏状态
-  usePolling(roomId || null, 2000);
 
   // 检查后端状态
   useEffect(() => {
@@ -78,6 +76,33 @@ const App: React.FC = () => {
     const interval = setInterval(check, 10000);
     return () => clearInterval(interval);
   }, []);
+
+  // 在点击开始游戏后开始轮询
+  const [isGameStarting, setIsGameStarting] = React.useState(false);
+  const [currentGameId, setCurrentGameId] = React.useState<string | null>(null);
+
+  // 当游戏开始请求发送后，或者游戏页面持续轮询
+  const shouldPoll = isGameStarting || currentView === 'game';
+  const pollingRoomId = shouldPoll ? (gameState?.id || currentGameId || roomId || null) : null;
+  console.log('🤖 轮询参数设置:', { isGameStarting, currentView, roomId, currentGameId, gameId: gameState?.id, pollingRoomId, shouldPoll });
+  usePolling(pollingRoomId, 2000);
+
+  // 监听游戏状态变化，自动切换到游戏页面
+  useEffect(() => {
+    console.log('👀 监听游戏状态变化:', { gameState, currentView });
+    if (gameState && currentView === 'room-setup') {
+      console.log('🎯 检测到游戏状态，准备切换到游戏页面');
+      setCurrentView('game');
+      setIsGameStarting(false); // 停止轮询标记
+
+      // 更新游戏ID
+      if (gameState.id && gameState.id !== currentGameId) {
+        setCurrentGameId(gameState.id);
+        console.log('✅ 更新游戏ID:', gameState.id);
+      }
+      console.log('✅ 已切换到游戏页面');
+    }
+  }, [gameState, currentView, setCurrentView, currentGameId]);
 
   const handleConnect = () => {
     if (inputRoomId.trim()) {
@@ -146,12 +171,53 @@ const App: React.FC = () => {
   const handleStartGame = async () => {
     if (!room) return;
 
+    console.log('🎮 开始游戏，房间ID:', room.id);
+    console.log('📋 startGame函数:', typeof startGame);
+
     try {
-      await startGame(room.id);
-      setCurrentView('game');
+      console.log('📤 正在发送游戏开始请求...');
+      const result = await startGame(room.id);
+      console.log('✅ 游戏开始请求发送成功，结果:', result);
+
+      // 保存游戏ID（响应中的game_id就是sessionId）
+      if (result.game_id) {
+        setCurrentGameId(result.game_id);
+        console.log('✅ 设置游戏ID:', result.game_id);
+      }
+
+      // 开始轮询游戏状态
+      console.log('🔄 准备设置isGameStarting为true');
+      setIsGameStarting(true);
+      console.log('✅ 已设置isGameStarting为true，gameId:', result.game_id);
     } catch (error) {
-      console.error('Failed to start game:', error);
-      alert('开始游戏失败，请重试');
+      console.error('❌ 开始游戏失败 - 详细错误:', error);
+      console.error('❌ 错误类型:', typeof error);
+      console.error('❌ 错误消息:', error instanceof Error ? error.message : String(error));
+      console.error('❌ 错误堆栈:', error instanceof Error ? error.stack : 'No stack');
+
+      alert(`开始游戏失败: ${error instanceof Error ? error.message : String(error)}`);
+      setIsGameStarting(false);
+    }
+  };
+
+  const handleExitRoom = async () => {
+    if (!room && !gameState) return;
+
+    const gameId = gameState?.id || room?.id;
+    if (!gameId) return;
+
+    try {
+      // 强制清理游戏资源
+      await cleanupGame(gameId, true);
+
+      // 重置状态
+      setGameState(null as any);
+      setRoom(null as any);
+      setCurrentView('home');
+      setIsGameStarting(false);
+    } catch (error) {
+      console.error('退出房间失败:', error);
+      alert(`退出房间失败: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
@@ -532,6 +598,7 @@ const App: React.FC = () => {
 
   // 房间设置界面
   if (currentView === 'room-setup' && room) {
+
     return (
       <div style={{
         minHeight: '100vh',
@@ -607,11 +674,12 @@ const App: React.FC = () => {
 
         {/* 主内容区 */}
         <div style={{
-          padding: '40px',
+          height: 'calc(100vh - 81px)',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          minHeight: 'calc(100vh - 81px)',
+          justifyContent: 'center',
+          padding: '20px',
         }}>
           {/* 房间信息 */}
           <motion.div
@@ -642,39 +710,38 @@ const App: React.FC = () => {
           {/* 玩家座位圆桌 */}
           <div style={{
             position: 'relative',
-            width: '600px',
-            height: '600px',
+            width: '700px',
+            height: '700px',
             margin: '0 auto',
           }}>
-            {/* 中心桌 */}
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              style={{
+            {/* 圆桌背景 */}
+            <div style={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              width: '360px',
+              height: '360px',
+              borderRadius: '50%',
+              background: 'radial-gradient(circle, #1e3a5f 0%, #0f172a 100%)',
+              border: '3px solid #334155',
+              boxShadow: 'inset 0 0 60px rgba(0,0,0,0.5), 0 0 40px rgba(30, 58, 95, 0.3)',
+              zIndex: 0,
+            }}>
+              {/* 中心logo */}
+              <div style={{
                 position: 'absolute',
                 top: '50%',
                 left: '50%',
                 transform: 'translate(-50%, -50%)',
-                width: '200px',
-                height: '200px',
-                borderRadius: '50%',
-                background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1))',
-                border: '2px solid rgba(99, 102, 241, 0.3)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: 'inset 0 0 50px rgba(99, 102, 241, 0.1)',
-              }}
-            >
-              <div style={{
                 textAlign: 'center',
-                color: '#94a3b8',
+                color: '#64748b',
               }}>
-                <div style={{ fontSize: '48px', marginBottom: '8px' }}>🎯</div>
-                <div style={{ fontSize: '14px', fontWeight: 600 }}>狼人杀</div>
-                <div style={{ fontSize: '12px' }}>房间 {room.id.slice(0, 8)}</div>
+                <div style={{ fontSize: '48px', marginBottom: '8px' }}>🐺</div>
+                <div style={{ fontSize: '14px', fontWeight: 500 }}>狼人杀</div>
+                <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '4px' }}>房间 {room.id.slice(0, 8)}</div>
               </div>
-            </motion.div>
+            </div>
 
             {/* 9个座位 */}
             {Array.from({ length: room.maxPlayers }, (_, i) => {
@@ -800,31 +867,6 @@ const App: React.FC = () => {
     );
   }
 
-  if (!gameState) {
-    return (
-      <div style={{
-        minHeight: '100vh',
-        background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        color: '#f1f5f9',
-        fontFamily: "'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif",
-      }}>
-        <div style={{ textAlign: 'center' }}>
-          <motion.div
-            animate={{ rotate: 360 }}
-            transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-            style={{ fontSize: '48px', marginBottom: '16px' }}
-          >
-            ⏳
-          </motion.div>
-          <h2 style={{ margin: '0 0 8px', fontSize: '24px' }}>正在加载游戏...</h2>
-          <p style={{ margin: 0, color: '#94a3b8' }}>请稍候</p>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div style={{
@@ -875,7 +917,33 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        <GameStats players={gameState.players} />
+        {gameState && <GameStats players={gameState.players} />}
+
+        {/* 退出房间按钮 */}
+        {gameState && (
+          <button
+            onClick={handleExitRoom}
+            style={{
+              padding: '6px 12px',
+              borderRadius: '6px',
+              border: '1px solid #ef4444',
+              background: 'rgba(239, 68, 68, 0.1)',
+              color: '#ef4444',
+              fontSize: '12px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+            }}
+            onMouseOver={(e) => {
+              e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.2)';
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.backgroundColor = 'rgba(239, 68, 68, 0.1)';
+            }}
+          >
+            退出房间
+          </button>
+        )}
       </header>
 
       {/* 主内容区 */}
@@ -883,6 +951,7 @@ const App: React.FC = () => {
         display: 'flex',
         height: 'calc(100vh - 81px)',
       }}>
+
         {/* 左侧：游戏区域 */}
         <div style={{
           flex: 1,
@@ -893,35 +962,177 @@ const App: React.FC = () => {
           gap: '24px',
           overflowY: 'auto',
         }}>
-          {/* 阶段横幅 */}
-          <PhaseBanner
-            phase={gameState.phase}
-            day={gameState.day}
-            isRunning={gameState.isRunning}
-            winner={gameState.winner}
-          />
+          {gameState ? (
+            <>
+              {/* 阶段横幅 */}
+              <PhaseBanner
+                phase={gameState.phase}
+                day={gameState.day}
+                isRunning={gameState.isRunning}
+                winner={gameState.winner}
+              />
 
-          {/* 玩家圆桌 */}
-          <PlayerCircle
-            players={gameState.players}
-            selectedPlayerId={selectedPlayerId}
-            onPlayerClick={setSelectedPlayerId}
-          />
+              {/* 玩家圆桌 */}
+              <PlayerCircle
+                players={gameState.players}
+                selectedPlayerId={selectedPlayerId}
+                onPlayerClick={setSelectedPlayerId}
+              />
+            </>
+          ) : (
+            /* 房间设置界面 */
+            <div style={{
+              maxWidth: '800px',
+              width: '100%',
+              textAlign: 'center',
+            }}>
+              <div style={{
+                background: 'rgba(30, 41, 59, 0.8)',
+                borderRadius: '16px',
+                padding: '32px',
+                boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+              }}>
+                <div style={{ fontSize: '48px', marginBottom: '16px' }}>🎯</div>
+                <h2 style={{
+                  margin: '0 0 16px 0',
+                  fontSize: '28px',
+                  fontWeight: 700,
+                  background: 'linear-gradient(135deg, #818cf8, #c084fc)',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                }}>
+                  房间设置完成
+                </h2>
+                <p style={{
+                  margin: '0 0 24px 0',
+                  color: '#94a3b8',
+                  fontSize: '16px',
+                  lineHeight: 1.6,
+                }}>
+                  房间已创建，所有玩家已就位。请在后端使用 <code>python start_game.py</code> 开始游戏。
+                </p>
+
+                {/* 房间信息 */}
+                <div style={{
+                  background: 'rgba(15, 23, 42, 0.6)',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  marginBottom: '24px',
+                  textAlign: 'left',
+                }}>
+                  <h3 style={{ margin: '0 0 12px 0', color: '#f1f5f9' }}>房间信息</h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '14px' }}>
+                    <div>房间ID: <span style={{ color: '#818cf8' }}>{room!.id}</span></div>
+                    <div>房间名: <span style={{ color: '#818cf8' }}>{room!.name}</span></div>
+                    <div>玩家数: <span style={{ color: '#818cf8' }}>{room!.currentPlayers}/{room!.maxPlayers}</span></div>
+                    <div>状态: <span style={{ color: room!.canStartGame ? '#22c55e' : '#f59e0b' }}>
+                      {room!.canStartGame ? '可开始' : '等待中'}
+                    </span></div>
+                  </div>
+                </div>
+
+                {/* 玩家列表 */}
+                <div style={{
+                  background: 'rgba(15, 23, 42, 0.6)',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  textAlign: 'left',
+                }}>
+                  <h3 style={{ margin: '0 0 12px 0', color: '#f1f5f9' }}>玩家列表 ({room!.players.length})</h3>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+                    gap: '8px',
+                  }}>
+                    {room!.players.map(player => (
+                      <div key={player.id} style={{
+                        background: 'rgba(71, 85, 105, 0.3)',
+                        padding: '8px',
+                        borderRadius: '6px',
+                        fontSize: '13px',
+                        textAlign: 'center',
+                      }}>
+                        <div style={{ fontWeight: 600, color: '#f1f5f9' }}>{player.name}</div>
+                        <div style={{ color: '#94a3b8', fontSize: '11px' }}>位置 {player.position}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* 右侧：事件日志 */}
+        {/* 右侧：信息栏 */}
         <div style={{
-          width: '420px',
-          borderLeft: '1px solid #334155',
-          background: 'rgba(15, 23, 42, 0.6)',
+          width: '350px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '20px',
+          padding: '24px 24px 24px 0',
+          overflowY: 'auto',
         }}>
-          <EventLog
-            events={gameState.events}
-            filters={eventFilters}
-            autoScroll={autoScroll}
-            onFilterToggle={toggleEventFilter}
-          />
+
+          {gameState ? (
+            <>
+              {/* 游戏统计 */}
+              <GameStats players={gameState.players} />
+
+              {/* 事件日志 */}
+              <div style={{ flex: 1, minHeight: 0 }}>
+                <EventLog
+                  events={gameState.events}
+                  filters={eventFilters}
+                  autoScroll={autoScroll}
+                  onFilterToggle={toggleEventFilter}
+                />
+              </div>
+            </>
+          ) : (
+            /* 等待游戏开始的界面 */
+            <div style={{
+              padding: '20px',
+              background: 'rgba(30, 41, 59, 0.6)',
+              borderRadius: '12px',
+              textAlign: 'center',
+            }}>
+              <div style={{ fontSize: '48px', marginBottom: '16px' }}>⏳</div>
+              <h3 style={{
+                margin: '0 0 12px 0',
+                fontSize: '18px',
+                fontWeight: 600,
+                color: '#f1f5f9',
+              }}>
+                等待游戏开始
+              </h3>
+              <p style={{
+                margin: 0,
+                color: '#94a3b8',
+                fontSize: '14px',
+                lineHeight: 1.6,
+              }}>
+                游戏正在后台准备中，<br/>
+                请稍候或联系管理员启动游戏。
+              </p>
+
+              {room && (
+                <div style={{
+                  marginTop: '20px',
+                  padding: '12px',
+                  background: 'rgba(15, 23, 42, 0.4)',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  color: '#64748b',
+                }}>
+                  <div>房间ID: {room.id.slice(0, 8)}...</div>
+                  <div>玩家: {room.currentPlayers}/{room.maxPlayers}</div>
+                  <div>状态: {room.canStartGame ? '可开始' : '等待中'}</div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
+
       </div>
     </div>
   );

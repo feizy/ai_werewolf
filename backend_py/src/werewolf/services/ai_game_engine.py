@@ -48,6 +48,55 @@ class AIGameEngine:
         self.day_count = 1
         self.phase_start_time = datetime.now()
 
+    def create_event(
+        self,
+        event_type: EventType,
+        content: str,
+        actor_id: Optional[str] = None,
+        actor_name: Optional[str] = None,
+        target_id: Optional[str] = None,
+        target_name: Optional[str] = None,
+        is_public: bool = True,
+        visible_to_roles: Optional[List[Role]] = None,
+        visible_to_players: Optional[List[str]] = None
+    ) -> None:
+        """Create and store event using EventService."""
+        if not self.session:
+            logger.warning("Cannot create event: no session available")
+            return
+
+        # Create event using EventService
+        from ..models.events import EventVisibility
+        self.event_service.create_event(
+            session_id=self.session.id,
+            event_type=event_type,
+            phase=self.current_phase,
+            day_count=self.day_count,
+            content=content,
+            actor_id=actor_id,
+            actor_name=actor_name,
+            target_id=target_id,
+            target_name=target_name,
+            visibility=EventVisibility(
+                public=is_public,
+                visible_to_roles=[r.value for r in visible_to_roles] if visible_to_roles else [],
+                visible_to_players=visible_to_players or []
+            )
+        )
+
+        # Also add to session for compatibility (optional)
+        self.session.add_event(
+            event_type=event_type,
+            content=content,
+            actor_id=actor_id,
+            actor_name=actor_name,
+            target_id=target_id,
+            target_name=target_name,
+            is_public=is_public,
+            visible_to_roles=visible_to_roles,
+            visible_to_players=visible_to_players
+        )
+
     async def initialize_game(self) -> None:
         """Initialize the game and create AI agents."""
         logger.info(f"Initializing AI-powered game for room {self.room.id}")
@@ -222,7 +271,18 @@ class AIGameEngine:
                         "player_id": target_player.id,
                         "player_name": target_player.name
                     }
-                    
+                    #添加到event_service
+                    await self.event_service.record_event(
+                        session_id=self.session.id,
+                        event_type=EventType.WEREWOLF_KILL,
+                        content=f"狼人决定击杀: {target_player.name}",
+                        phase=GamePhase.NIGHT,
+                        day_number=self.day_count,
+                        actor_id=leader.player_id,
+                        actor_name=leader.name,
+                        target_id=target_player.id,
+                        target_name=target_player.name
+                    )
         except Exception as e:
             logger.error(f"Error in werewolf kill decision: {e}")
     
@@ -243,7 +303,6 @@ class AIGameEngine:
                 
                 if action.target:
                     await self._execute_seer_check(agent.player_id, action.target)
-                    
             except Exception as e:
                 logger.error(f"Error in seer check for {agent.name}: {e}")
     
@@ -857,8 +916,8 @@ class AIGameEngine:
             
             if sheriff:
                 self.session.sheriff = {"player_id": sheriff_id, "player_name": sheriff.name}
-                sheriff.voting_weight = 1.5  # Sheriff has 1.5 vote
-                
+                sheriff.set_as_sheriff()  # Set sheriff status and voting weight
+
                 logger.info(f"🎖️ {sheriff.name} 当选警长！")
                 print(f"[警长竞选] {sheriff.name} 当选警长！")
         elif len(candidates) == 1:
@@ -867,7 +926,7 @@ class AIGameEngine:
             sheriff = self._get_player_by_id(sheriff_id)
             if sheriff:
                 self.session.sheriff = {"player_id": sheriff_id, "player_name": sheriff.name}
-                sheriff.voting_weight = 1.5
+                sheriff.set_as_sheriff()  # Set sheriff status and voting weight
                 logger.info(f"🎖️ {sheriff.name} 自动当选警长！")
                 print(f"[警长竞选] {sheriff.name} 自动当选警长（唯一竞选者）")
 
@@ -1148,21 +1207,99 @@ class AIGameEngine:
         if not self.session:
             return {"status": "not_started"}
 
+        # Calculate duration
+        start_time = self.session.phase_start_time
+        end_time = self.session.ended_at or datetime.now()
+        duration = (end_time - start_time).total_seconds()
+
         return {
             "session_id": self.session.id,
             "room_id": self.session.room_id,
             "status": "running" if self.is_running else "ended",
             "current_phase": self.session.current_phase.value,
             "day_count": self.session.day_count,
+            "is_running": self.is_running,
             "players": [p.get_private_info() for p in self.room.players],
+            "events": [
+                {
+                    "id": str(e.id),
+                    "timestamp": e.timestamp.isoformat(),
+                    "day_count": e.day_count,
+                    "phase": e.phase.value if hasattr(e.phase, 'value') else str(e.phase),
+                    "type": e.type.value if hasattr(e.type, 'value') else str(e.type),
+                    "content": e.content,
+                    "actor_id": e.actor_id,
+                    "actor_name": e.actor_name,
+                    "target_id": e.target_id,
+                    "target_name": e.target_name,
+                }
+                for e in self.event_service.get_visible_events(self.session.id)
+            ],
             "winner": self.session.winner.value if self.session.winner else None,
-            "start_time": self.session.phase_start_time.isoformat(),
+            "start_time": start_time.isoformat(),
             "end_time": self.session.ended_at.isoformat() if self.session.ended_at else None,
+            "duration": duration,
             "agent_info": {
                 player_id: agent.get_agent_info()
                 for player_id, agent in self.agents.items()
             }
         }
+
+    def stop_game(self) -> None:
+        """Stop the game immediately."""
+        logger.info(f"Stopping game for room {self.room.id}")
+
+        # Set game as not running
+        self.is_running = False
+
+        # Mark session as ended if it exists
+        if self.session:
+            self.session.end_game("游戏被手动停止")
+
+        # Record stop event if session exists
+        if self.session:
+            asyncio.create_task(self.event_service.record_event(
+                session_id=self.session.id,
+                event_type=EventType.GAME_END,
+                content="游戏被手动停止",
+                phase=self.session.current_phase,
+                day_number=self.day_count
+            ))
+
+    async def cleanup(self) -> None:
+        """Clean up resources."""
+        logger.info(f"Cleaning up game resources for room {self.room.id}")
+
+        try:
+            # Clean up all AI agents
+            if self.agents:
+                for player_id, agent in self.agents.items():
+                    try:
+                        if hasattr(agent, 'cleanup'):
+                            await agent.cleanup()
+                        elif hasattr(agent, 'close'):
+                            await agent.close()
+                        logger.debug(f"Cleaned up agent for player {player_id}")
+                    except Exception as e:
+                        logger.error(f"Error cleaning up agent {player_id}: {e}")
+
+                self.agents.clear()
+
+            # Clean up event service
+            if self.event_service and hasattr(self.event_service, 'cleanup'):
+                await self.event_service.cleanup()
+
+            # Clear session
+            self.session = None
+            self.is_running = False
+
+            # Clear team info
+            self.team_info.clear()
+
+            logger.info(f"Game resources cleaned up for room {self.room.id}")
+
+        except Exception as e:
+            logger.error(f"Error during cleanup for room {self.room.id}: {e}")
 
     async def _get_daily_summary(self) -> str:
         """Get daily summary of speeches for the current day."""

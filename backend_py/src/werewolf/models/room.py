@@ -119,10 +119,10 @@ class GameRoom:
 
     @property
     def can_start_game(self) -> bool:
-        """Check if game can start."""
+        """Check if game can start. Need at least 4 players."""
         return (
             self.status == RoomStatus.WAITING and
-            self.current_players == self.max_players
+            self.current_players >= 4
         )
 
     def add_player(self, player: Player) -> bool:

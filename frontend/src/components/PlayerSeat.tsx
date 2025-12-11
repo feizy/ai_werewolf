@@ -32,6 +32,7 @@ export const PlayerSeat: React.FC<PlayerSeatProps> = ({
         top: `calc(50% + ${y}px - 50px)`,
         width: '100px',
         height: '100px',
+        zIndex: 2, // 确保在圆桌背景之上
       }}
     >
       <motion.div

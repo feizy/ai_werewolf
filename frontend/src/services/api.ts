@@ -1,6 +1,6 @@
 // API 服务 - 连接后端 localhost:8001
 
-const API_BASE = ''; // 使用 Vite 代理，不需要前缀
+export const API_BASE = ''; // 使用 Vite 代理，不需要前缀
 
 export interface RoomInfo {
   id: string;
@@ -9,11 +9,13 @@ export interface RoomInfo {
   max_players: number;
   is_full: boolean;
   can_start_game: boolean;
+  status: string;
   players: Array<{
     id: string;
     name: string;
     position: number;
     is_ai: boolean;
+    role?: string;
   }>;
 }
 
@@ -114,19 +116,92 @@ export async function joinRoom(roomId: string, playerName: string, aiConfig?: an
 
 // 开始游戏
 export async function startGame(roomId: string): Promise<GameInfo> {
-  const response = await fetch(`${API_BASE}/games/${roomId}/start`, {
+  console.log(`🚀 发送开始游戏请求到: ${API_BASE}/games/${roomId}/start`);
+
+  // 添加超时处理
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超时
+
+  try {
+    const response = await fetch(`${API_BASE}/games/${roomId}/start`, {
+      method: 'POST',
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+    console.log(`📡 开始游戏API响应状态: ${response.status}`);
+
+    if (!response.ok) {
+      const error = await response.json();
+      console.log(`❌ 开始游戏失败:`, error);
+      throw new Error(error.detail || `Failed to start game: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    console.log(`✅ 开始游戏成功:`, result);
+    return result;
+  } catch (error) {
+    clearTimeout(timeoutId);
+
+    if ((error as any).name === 'AbortError') {
+      console.log(`⏰ 开始游戏请求超时`);
+      throw new Error('Start game request timed out');
+    }
+
+    console.log(`❌ 开始游戏请求异常:`, error);
+    throw error;
+  }
+}
+
+// 停止游戏
+export async function stopGame(gameId: string): Promise<any> {
+  console.log(`🛑 发送停止游戏请求到: ${API_BASE}/games/${gameId}/stop`);
+
+  const response = await fetch(`${API_BASE}/games/${gameId}/stop`, {
     method: 'POST',
   });
+
   if (!response.ok) {
     const error = await response.json();
-    throw new Error(error.detail || `Failed to start game: ${response.statusText}`);
+    throw new Error(error.detail || `Failed to stop game: ${response.statusText}`);
+  }
+
+  const result = await response.json();
+  console.log(`✅ 停止游戏成功:`, result);
+  return result;
+}
+
+// 清理游戏资源
+export async function cleanupGame(gameId: string, force: boolean = false): Promise<any> {
+  const url = new URL(`${API_BASE}/games/${gameId}`);
+  if (force) {
+    url.searchParams.append('force', 'true');
+  }
+
+  const response = await fetch(url.toString(), {
+    method: 'DELETE',
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || `Failed to cleanup game: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+// 获取完整游戏数据（包含所有事件）
+export async function getFullGameData(gameId: string): Promise<any> {
+  const response = await fetch(`${API_BASE}/games/${gameId}`);
+  if (!response.ok) {
+    throw new Error(`Failed to get game data: ${response.statusText}`);
   }
   return response.json();
 }
 
-// 获取游戏状态
+// 获取游戏状态（当前状态，不包含完整事件）
 export async function getGameState(gameId: string): Promise<unknown> {
-  const response = await fetch(`${API_BASE}/games/${gameId}`);
+  const response = await fetch(`${API_BASE}/games/${gameId}/state`);
   if (!response.ok) {
     throw new Error(`Failed to get game state: ${response.statusText}`);
   }

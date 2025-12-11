@@ -56,7 +56,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
     room: state.room ? {
       ...state.room,
       players: [...state.room.players, player],
-      currentPlayers: state.room.currentPlayers + 1
+      currentPlayers: state.room.currentPlayers + 1,
+      canStartGame: state.room.currentPlayers + 1 >= 4
     } : null
   })),
   updateRoomPlayer: (playerId, updates) => set((state) => ({

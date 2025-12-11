@@ -190,6 +190,24 @@ class GameEvent:
         """Alias for type."""
         return self.type
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert event to dictionary."""
+        return {
+            "id": self.id,
+            "session_id": self.session_id,
+            "type": self.type.value,
+            "event_type": self.type.value,  # For compatibility with frontend
+            "phase": self.phase.value,
+            "day_count": self.day_count,
+            "timestamp": self.timestamp.isoformat(),
+            "actor_id": self.actor_id,
+            "actor_name": self.actor_name,
+            "target_id": self.target_id,
+            "target_name": self.target_name,
+            "content": self.content,
+            "details": self.details,
+        }
+
 
 @dataclass
 class DailySnapshot:
@@ -400,11 +418,11 @@ class GameSession:
     def start_game(self) -> None:
         """Start the game."""
         # Add game start event
-        self.add_event(
-            EventType.GAME_START,
-            "游戏开始，所有玩家就位",
-            is_public=True
-        )
+        # self.add_event(
+        #     EventType.GAME_START,
+        #     "游戏开始，所有玩家就位",
+        #     is_public=True
+        # )
 
         # Create initial daily snapshot
         self.create_daily_snapshot()
@@ -458,6 +476,12 @@ class GameSession:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert game session to dictionary."""
+        # Try to get events from EventService if available
+        events = self.events  # fallback to internal events
+
+        # Note: EventService is not available in this context,
+        # so we use internal events. The API handles EventService integration.
+
         return {
             "id": self.id,
             "room_id": self.room_id,
@@ -466,7 +490,9 @@ class GameSession:
             "phase_start_time": self.phase_start_time.isoformat(),
             "ended_at": self.ended_at.isoformat() if self.ended_at else None,
             "winner": self.winner.value if self.winner else None,
-            "events_count": len(self.events),
+            "events_count": len(events),
             "snapshots_count": len(self.daily_snapshots),
             "players": [p.get_private_info() for p in self.players],
+            "events": [event.to_dict() for event in events],
+            "is_running": self.ended_at is None,
         }
