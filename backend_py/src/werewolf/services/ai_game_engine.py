@@ -875,6 +875,15 @@ class AIGameEngine:
                 if action.content and player:
                     logger.info(f"📢 {player.name}: {action.content[:100]}...")
                     print(f"[竞选发言] {player.name}: {action.content}")
+                    #添加到event_service
+                    await self.event_service.record_event(
+                        session_id=self.session.id,
+                        event_type=EventType.SHERIFF_SPEECH,
+                        content=f"{player.name} 竞选发言: {action.content}",
+                        phase=GamePhase.DAY_DISCUSSION,
+                        day_number=self.day_count,
+                        actor_id=player.id,
+                        actor_name=player.name
             except Exception as e:
                 logger.error(f"Error in campaign speech for {candidate['agent'].name}: {e}")
         
