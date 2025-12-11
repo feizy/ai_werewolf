@@ -1,15 +1,26 @@
 import { create } from 'zustand';
-import { GameState, GameEvent, Player, EventCategory } from '@/types/game';
+import { GameState, GameEvent, Player, EventCategory, Room, RoomPlayer, LLMConfig, ViewType } from '@/types/game';
 
 interface GameStore {
-  // 状态
+  // 房间状态
+  room: Room | null;
+  currentView: ViewType;
+
+  // 游戏状态
   gameState: GameState | null;
   connectionStatus: 'disconnected' | 'connecting' | 'connected' | 'error';
   selectedPlayerId: string | null;
   eventFilters: EventCategory[];
   autoScroll: boolean;
 
-  // Actions
+  // Actions - 房间管理
+  setRoom: (room: Room) => void;
+  updateRoom: (partial: Partial<Room>) => void;
+  addPlayerToRoom: (player: RoomPlayer) => void;
+  updateRoomPlayer: (playerId: string, updates: Partial<RoomPlayer>) => void;
+  setCurrentView: (view: ViewType) => void;
+
+  // Actions - 游戏管理
   setGameState: (state: GameState) => void;
   updateGameState: (partial: Partial<GameState>) => void;
   addEvent: (event: GameEvent) => void;
@@ -24,6 +35,8 @@ interface GameStore {
 }
 
 const initialState = {
+  room: null,
+  currentView: 'home' as const,
   gameState: null,
   connectionStatus: 'disconnected' as const,
   selectedPlayerId: null,
@@ -34,6 +47,29 @@ const initialState = {
 export const useGameStore = create<GameStore>((set, get) => ({
   ...initialState,
 
+  // 房间管理
+  setRoom: (room) => set({ room }),
+  updateRoom: (partial) => set((state) => ({
+    room: state.room ? { ...state.room, ...partial } : null
+  })),
+  addPlayerToRoom: (player) => set((state) => ({
+    room: state.room ? {
+      ...state.room,
+      players: [...state.room.players, player],
+      currentPlayers: state.room.currentPlayers + 1
+    } : null
+  })),
+  updateRoomPlayer: (playerId, updates) => set((state) => ({
+    room: state.room ? {
+      ...state.room,
+      players: state.room.players.map(p =>
+        p.id === playerId ? { ...p, ...updates } : p
+      )
+    } : null
+  })),
+  setCurrentView: (currentView) => set({ currentView }),
+
+  // 游戏管理
   setGameState: (gameState) => set({ gameState }),
 
   updateGameState: (partial) => set((state) => ({

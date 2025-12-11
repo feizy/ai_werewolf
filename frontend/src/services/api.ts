@@ -53,14 +53,61 @@ export async function listRooms(): Promise<RoomInfo[]> {
 }
 
 // 创建房间
-export async function createRoom(name: string, playerName: string): Promise<{ room_id: string; player_id: string }> {
+export async function createRoom(name: string, maxPlayers: number, llmConfig: any): Promise<{ room_id: string; room_name: string; current_players: number; max_players: number; status: string }> {
+  // 转换前端字段名到后端期望的格式
+  const backendLLMConfig = {
+    model_name: llmConfig.modelName,
+    api_key: llmConfig.apiKey,
+    provider: llmConfig.provider,
+    stream: llmConfig.stream || false,
+    enable_thinking: llmConfig.enableThinking || false,
+    client_kwargs: llmConfig.clientKwargs || {},
+  };
+
   const response = await fetch(`${API_BASE}/rooms`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, player_name: playerName }),
+    body: JSON.stringify({
+      room_name: name,
+      max_players: maxPlayers,
+      llm_config: backendLLMConfig
+    }),
   });
   if (!response.ok) {
-    throw new Error(`Failed to create room: ${response.statusText}`);
+    const errorText = await response.text();
+    throw new Error(`Failed to create room: ${response.status} - ${errorText}`);
+  }
+  return response.json();
+}
+
+// 添加玩家到房间
+export async function joinRoom(roomId: string, playerName: string, aiConfig?: any, modelConfig?: any): Promise<RoomInfo> {
+  // 转换前端字段名到后端期望的格式
+  let backendModelConfig;
+  if (modelConfig) {
+    backendModelConfig = {
+      model_name: modelConfig.modelName,
+      api_key: modelConfig.apiKey,
+      provider: modelConfig.provider,
+      stream: modelConfig.stream || false,
+      enable_thinking: modelConfig.enableThinking || false,
+      client_kwargs: modelConfig.clientKwargs || {},
+    };
+  }
+
+  const response = await fetch(`${API_BASE}/rooms/${roomId}/join`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      room_id: roomId,
+      player_name: playerName,
+      ai_config: aiConfig,
+      model_configuration: backendModelConfig
+    }),
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to join room: ${response.status} - ${errorText}`);
   }
   return response.json();
 }

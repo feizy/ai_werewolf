@@ -26,6 +26,46 @@ export interface RoleAbilities {
   hunterCanShoot?: boolean;
 }
 
+// LLM 配置
+export interface LLMConfig {
+  provider: 'anthropic' | 'openai' | 'dashscope';
+  apiKey: string;
+  modelName: string;
+  temperature?: number;
+  stream?: boolean;
+  enableThinking?: boolean;
+  clientKwargs?: Record<string, any>;
+}
+
+// 房间状态
+export type RoomStatus = 'waiting' | 'ready' | 'playing' | 'finished';
+
+// 视图状态
+export type ViewType = 'home' | 'create-room' | 'room-setup' | 'game';
+
+// 房间信息
+export interface Room {
+  id: string;
+  name: string;
+  currentPlayers: number;
+  maxPlayers: number;
+  isFull: boolean;
+  canStartGame: boolean;
+  status: RoomStatus;
+  players: RoomPlayer[];
+}
+
+// 房间玩家
+export interface RoomPlayer {
+  id: string;
+  name: string;
+  position: number;
+  isAI: boolean;
+  llmConfig?: LLMConfig;
+  role?: string;
+  status?: string;
+}
+
 // 玩家
 export interface Player {
   id: string;
