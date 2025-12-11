@@ -884,6 +884,7 @@ class AIGameEngine:
                         day_number=self.day_count,
                         actor_id=player.id,
                         actor_name=player.name
+                    )
             except Exception as e:
                 logger.error(f"Error in campaign speech for {candidate['agent'].name}: {e}")
         
