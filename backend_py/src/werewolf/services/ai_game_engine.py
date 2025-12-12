@@ -121,7 +121,7 @@ class AIGameEngine:
 
             # Create game session
             self.session = GameSession(self.room.id, self.room.players)
-            self.session.current_phase = GamePhase.NIGHT
+            self.session.current_phase = GamePhase.INIT
             self.session.day_count = 1
 
             logger.info(f"Game initialized with {len(self.agents)} AI agents")
@@ -144,8 +144,8 @@ class AIGameEngine:
         await self.event_service.record_event(
             session_id=self.session.id,
             event_type=EventType.GAME_START,
-            content="游戏开始，所有玩家就位",
-            phase=GamePhase.NIGHT,
+            content="Players are ready, game starts!",
+            phase=GamePhase.INIT,
             day_number=1
         )
 
@@ -171,7 +171,7 @@ class AIGameEngine:
             for agent_id, agent in self.agents.items():
                 await agent.agent.memory.clear()
             #取出所有之前日的summary，存入所有玩家memory
-            for event in self.session.events:
+            for event in self.event_service.get_session_events(self.session.id):
                 if event.event_type == EventType.DAILY_SUMMARY:
                     msg = Msg(role="system", content=event.content, name="system")
                     for agent_id, agent in self.agents.items():
@@ -206,9 +206,15 @@ class AIGameEngine:
         if not werewolf_agents:
             return
         
-        logger.info("🐺 狼人睁眼，开始商议击杀目标")
+        # logger.info("🐺 狼人睁眼，开始商议击杀目标")
         print("[狼人夜晚] 狼人睁眼，开始商议")
-        
+        await self.event_service.record_event(
+            session_id=self.session.id,
+            event_type=EventType.WEREWOLF_DISCUSS,
+            content="狼人睁眼，开始商议击杀目标",
+            phase=GamePhase.NIGHT,
+            day_number=self.day_count
+        )
         # Get non-werewolf alive players as potential targets
         potential_targets = [
             p for p in self.room.players 
@@ -243,7 +249,17 @@ class AIGameEngine:
                             "target": target_player.name,
                             "reason": reason
                         })
-                        logger.info(f"🐺 {agent.name}: 建议击杀 {target_player.name}，理由: {reason}")
+                        await self.event_service.record_event(
+                            session_id=self.session.id,
+                            event_type=EventType.WEREWOLF_DISCUSS,
+                            content=f"{agent.name} 建议击杀 {target_player.name}，理由: {reason}",
+                            phase=GamePhase.NIGHT,
+                            day_number=self.day_count,
+                            actor_id=agent.player_id,
+                            actor_name=agent.name,
+                            target_id=target_player.id,
+                            target_name=target_player.name)
+                        # logger.info(f"🐺 {agent.name}: 建议击杀 {target_player.name}，理由: {reason}")
                         print(f"[狼人] {agent.name}: 建议击杀 {target_player.name}，理由: {reason}")
                     
             except Exception as e:
@@ -264,7 +280,7 @@ class AIGameEngine:
             if action.target:
                 target_player = self._get_player_by_id(action.target)
                 if target_player and target_player.role != Role.WEREWOLF:
-                    logger.info(f"🐺 狼人决定击杀: {target_player.name}")
+                    # logger.info(f"🐺 狼人决定击杀: {target_player.name}")
                     print(f"[狼人击杀] 狼人决定击杀: {target_player.name}")
                     
                     self.session.night_actions.werewolf_target = {
@@ -295,7 +311,7 @@ class AIGameEngine:
         
         for agent in seer_agents:
             try:
-                logger.info(f"🔮 预言家 {agent.name} 睁眼查验")
+                # logger.info(f"🔮 预言家 {agent.name} 睁眼查验")
                 print(f"[预言家] {agent.name} 睁眼查验")
                 
                 game_state = await self._create_game_state(agent.player_id)
@@ -315,7 +331,7 @@ class AIGameEngine:
         
         for agent in witch_agents:
             try:
-                logger.info(f"🧪 女巫 {agent.name} 睁眼")
+                # logger.info(f"🧪 女巫 {agent.name} 睁眼")
                 print(f"[女巫] {agent.name} 睁眼")
                 
                 game_state = await self._create_game_state(agent.player_id)
@@ -327,9 +343,18 @@ class AIGameEngine:
                         "player_id": werewolf_target["player_id"],
                         "player_name": werewolf_target["player_name"]
                     }
-                    logger.info(f"🧪 女巫得知 {werewolf_target['player_name']} 被狼人击杀")
+                    # logger.info(f"🧪 女巫得知 {werewolf_target['player_name']} 被狼人击杀")
                     print(f"[女巫] 得知 {werewolf_target['player_name']} 被狼人击杀")
-                
+                    await self.event_service.record_event(
+                        session_id=self.session.id,
+                        event_type=EventType.WITCH_SAVE,
+                        content=f"女巫得知 {werewolf_target['player_name']} 被狼人击杀",
+                        phase=GamePhase.NIGHT,
+                        day_number=self.day_count,
+                        actor_id=agent.player_id,
+                        actor_name=agent.name,
+                        target_id=werewolf_target["player_id"],
+                        target_name=werewolf_target["player_name"])
                 # Check witch abilities
                 player = self._get_player_by_id(agent.player_id)
                 game_state.known_info["has_antidote"] = player.role_abilities.witch_has_antidote if player else False
@@ -344,27 +369,24 @@ class AIGameEngine:
                 if action.action_type == "witch_save" and game_state.known_info.get("has_antidote"):
                     # Save the werewolf target
                     if werewolf_target:
-                        self.session.night_actions.witch_save = True
-                        if player:
-                            player.role_abilities.witch_has_antidote = False
-                        logger.info(f"🧪 女巫使用解药救了 {werewolf_target['player_name']}")
-                        print(f"[女巫解药] 女巫救了 {werewolf_target['player_name']}")
-                        
+                        await self._execute_witch_save(agent.player_id, werewolf_target)
                 elif action.action_type == "witch_poison" and action.target and game_state.known_info.get("has_poison"):
-                    # Poison someone
+                    # Poison someone - delegate to execution method
                     target_player = self._get_player_by_id(action.target)
                     if target_player:
-                        self.session.night_actions.witch_poison_target = {
-                            "player_id": target_player.id,
-                            "player_name": target_player.name
-                        }
-                        if player:
-                            player.role_abilities.witch_has_poison = False
-                        logger.info(f"🧪 女巫使用毒药毒死 {target_player.name}")
-                        print(f"[女巫毒药] 女巫毒死 {target_player.name}")
+                        await self._execute_witch_poison(agent.player_id, target_player.id)
                 else:
-                    logger.info(f"🧪 女巫选择不使用药水")
+                    # logger.info(f"🧪 女巫选择不使用药水")
                     print(f"[女巫] 女巫选择不使用药水")
+                    await self.event_service.record_event(
+                        session_id=self.session.id,
+                        event_type=EventType.WITCH_SAVE,
+                        content=f"女巫选择不使用药水",
+                        phase=GamePhase.NIGHT,
+                        day_number=self.day_count,
+                        actor_id=agent.player_id,
+                        actor_name=agent.name
+                    )
 
             except Exception as e:
                     logger.error(f"Error in witch action for {agent.name}: {e}")
@@ -436,7 +458,7 @@ class AIGameEngine:
 
         # Log speech to console with enhanced formatting
         role_info = f"({player.role.value})" if player.role else "(Unknown)"
-        logger.info(f"💬 {player.name} {role_info} 发言: {content}")
+        # logger.info(f"💬 {player.name} {role_info} 发言: {content}")
         print(f"[发言] {player.name} {role_info}: {content}")
 
         # Record speech event
@@ -463,9 +485,9 @@ class AIGameEngine:
     async def _analyze_speech_for_agent(self, listener_id: str, speaker_id: str, content: str) -> None:
         """Agent analyzes speech from another player."""
         listener_agent = self.agents[listener_id]
-        # add content to memory (InMemoryMemory.add 是协程，需要 await)
-        content = f"{speaker_id}发言：{content}"
-        msg = Msg(role="system", name=speaker_id, content=content)
+        speaker_name = self._get_player_by_id(speaker_id).name
+        content = f"{speaker_name}发言：{content}"
+        msg = Msg(role="system", name=speaker_name, content=content)
         try:
             if listener_agent.agent and getattr(listener_agent.agent, "memory", None):
                 await listener_agent.agent.memory.add(msg)
@@ -505,7 +527,18 @@ class AIGameEngine:
                 if action.action_type == "vote" and action.target:
                     votes[agent.player_id] = action.target
                     logger.info(f"{agent.name} votes for {action.target}")
-                    voting_record[agent.name] = self._get_player_by_id(action.target)
+                    voting_record[agent.name] = self._get_player_by_id(action.target).name
+                    await self.event_service.record_event(
+                            session_id=self.session.id,
+                            event_type=EventType.PLAYER_VOTE,
+                            content=f"{agent.name} 投票给 {action.target}",
+                            phase=GamePhase.VOTING,
+                            day_number=self.day_count,
+                            actor_id=agent.player_id,
+                            actor_name=agent.name,
+                            target_id=action.target,
+                            target_name=self._get_player_by_id(action.target).name
+                    )
             except Exception as e:
                 logger.error(f"Error getting vote from {agent.name}: {e}")
         voting_name = f"第{self.day_count}天白天放逐投票"
@@ -518,7 +551,7 @@ class AIGameEngine:
     async def _process_voting_results(self, votes: Dict[str, str]) -> None:
         """Process voting results and eliminate player."""
         if not votes:
-            logger.info("⚖️ 无人投票，无人被放逐")
+            # logger.info("⚖️ 无人投票，无人被放逐")
             print("[投票结果] 无人投票，无人被放逐")
             # Continue to next night
             if not await self._check_game_end():
@@ -542,7 +575,7 @@ class AIGameEngine:
             return
 
         # Display vote counts
-        logger.info("⚖️ 投票统计:")
+        # logger.info("⚖️ 投票统计:")
         print("[投票统计]")
         for player_id, count in vote_counts.items():
             player = self._get_player_by_id(player_id)
@@ -558,11 +591,11 @@ class AIGameEngine:
         # Check for tie
         tied_players = [pid for pid, count in vote_counts.items() if count == max_votes]
         if len(tied_players) > 1:
-            logger.info("⚖️ 平票，无人被放逐")
+            # logger.info("⚖️ 平票，无人被放逐")
             print("[投票结果] 平票，无人被放逐")
             # TODO: Could add PK round here
         elif eliminated_player and max_votes > 0:
-            logger.info(f"⚖️ {eliminated_player.name} 被放逐出局")
+            # logger.info(f"⚖️ {eliminated_player.name} 被放逐出局")
             print(f"[投票结果] {eliminated_player.name} 被放逐出局")
             
             # Last words before elimination
@@ -580,39 +613,39 @@ class AIGameEngine:
             self.day_count += 1
             await self._start_night_phase()
 
-    async def _execute_agent_action(self, agent_id: str, action: AgentAction, phase: GamePhase) -> None:
-        """Execute agent action."""
-        logger.info(f"Executing {action.action_type} for agent {agent_id}")
+    # async def _execute_agent_action(self, agent_id: str, action: AgentAction, phase: GamePhase) -> None:
+    #     """Execute agent action."""
+    #     logger.info(f"Executing {action.action_type} for agent {agent_id}")
 
-        if action.action_type == "werewolf_kill" and action.target:
-            await self._execute_werewolf_kill(agent_id, action.target)
+    #     if action.action_type == "werewolf_kill" and action.target:
+    #         await self._execute_werewolf_kill(agent_id, action.target)
 
-        elif action.action_type == "seer_check" and action.target:
-            await self._execute_seer_check(agent_id, action.target)
+    #     elif action.action_type == "seer_check" and action.target:
+    #         await self._execute_seer_check(agent_id, action.target)
 
-        elif action.action_type == "witch_save" and action.target:
-            await self._execute_witch_save(agent_id, action.target)
+    #     elif action.action_type == "witch_save" and action.target:
+    #         await self._execute_witch_save(agent_id, action.target)
 
-        elif action.action_type == "witch_poison" and action.target:
-            await self._execute_witch_poison(agent_id, action.target)
+    #     elif action.action_type == "witch_poison" and action.target:
+    #         await self._execute_witch_poison(agent_id, action.target)
 
-        elif action.action_type == "hunter_shoot" and action.target:
-            await self._execute_hunter_shot(agent_id, action.target)
+    #     elif action.action_type == "hunter_shoot" and action.target:
+    #         await self._execute_hunter_shot(agent_id, action.target)
 
-    async def _execute_werewolf_kill(self, werewolf_id: str, target_id: str) -> None:
-        """Execute werewolf kill action."""
-        target_player = self._get_player_by_id(target_id)
-        if target_player:
-            # Log werewolf kill to console
-            logger.info(f"🌙 狼人击杀目标: {target_player.name}")
-            print(f"[狼人击杀] 目标: {target_player.name}")
+    # async def _execute_werewolf_kill(self, werewolf_id: str, target_id: str) -> None:
+    #     """Execute werewolf kill action."""
+    #     target_player = self._get_player_by_id(target_id)
+    #     if target_player:
+    #         # Log werewolf kill to console
+    #         logger.info(f"🌙 狼人击杀目标: {target_player.name}")
+    #         print(f"[狼人击杀] 目标: {target_player.name}")
 
-            # Mark for death (will be processed in day phase)
-            self.session.night_actions.werewolf_target = {
-                "player_id": target_id,
-                "player_name": target_player.name,
-                "action_by": werewolf_id
-            }
+    #         # Mark for death (will be processed in day phase)
+    #         self.session.night_actions.werewolf_target = {
+    #             "player_id": target_id,
+    #             "player_name": target_player.name,
+    #             "action_by": werewolf_id
+    #         }
 
     async def _execute_seer_check(self, seer_id: str, target_id: str) -> None:
         """Execute seer check action."""
@@ -624,7 +657,7 @@ class AIGameEngine:
             result_text = "狼人" if result == "werewolf" else "好人"
 
             # Log seer check to console
-            logger.info(f"🔮 预言家查验了 {target_player.name}，结果是: {result_text}")
+            # logger.info(f"🔮 预言家查验了 {target_player.name}，结果是: {result_text}")
             print(f"[预言家查验] 查验目标: {target_player.name} → 结果: {result_text}")
 
             # Update seer's knowledge
@@ -647,22 +680,61 @@ class AIGameEngine:
                 visible_to_players=[seer_id]
             )
 
+    async def _execute_witch_save(self, witch_id: str, werewolf_target: dict) -> None:
+        """Execute witch save action."""
+        target_name = werewolf_target['player_name']
+
+        # Update night actions
+        self.session.night_actions.witch_save = True
+
+        # Update witch's ability status
+        witch_player = self._get_player_by_id(witch_id)
+        if witch_player:
+            witch_player.role_abilities.witch_has_antidote = False
+
+        # Log to console
+        # logger.info(f"🧪 女巫使用解药救了 {target_name}")
+        print(f"[女巫解药] 女巫救了 {target_name}")
+
+        # Update witch's knowledge
+        witch_agent = self.agents[witch_id]
+        witch_agent.update_player_notes(
+            werewolf_target['player_id'],
+            "使用解药拯救"
+        )
+
+        # Record save event
+        await self.event_service.record_event(
+            session_id=self.session.id,
+            event_type=EventType.WITCH_SAVE,
+            content=f"女巫使用解药拯救了{target_name}",
+            actor_id=witch_id,
+            target_id=werewolf_target['player_id'],
+            phase=GamePhase.NIGHT,
+            day_number=self.day_count,
+            data={"action": "save"}
+        )
+
     async def _execute_witch_poison(self, witch_id: str, target_id: str) -> None:
         """Execute witch poison action."""
         target_player = self._get_player_by_id(target_id)
         witch_agent = self.agents[witch_id]
 
         if target_player:
-            # Log witch poison to console
-            logger.info(f"🧪 女巫使用毒药: {target_player.name}")
-            print(f"[女巫毒药] 目标: {target_player.name}")
-
-            # Mark for death
-            self.session.night_actions.witch_action = {
-                "action": "poison",
-                "target_id": target_id,
-                "target_name": target_player.name
+            # Update night actions (use witch_poison_target for consistency)
+            self.session.night_actions.witch_poison_target = {
+                "player_id": target_player.id,
+                "player_name": target_player.name
             }
+
+            # Update witch's ability status
+            witch_player = self._get_player_by_id(witch_id)
+            if witch_player:
+                witch_player.role_abilities.witch_has_poison = False
+
+            # Log to console
+            # logger.info(f"🧪 女巫使用毒药毒死 {target_player.name}")
+            print(f"[女巫毒药] 女巫毒死 {target_player.name}")
 
             # Update witch's knowledge
             witch_agent.update_player_notes(
@@ -671,16 +743,16 @@ class AIGameEngine:
             )
 
             # Record poison event
-            await self.event_service.record_event(
-                session_id=self.session.id,
-                event_type=EventType.WITCH_POISON,
-                content=f"女巫使用毒药击杀了{target_player.name}",
-                actor_id=witch_id,
-                target_id=target_id,
-                phase=GamePhase.NIGHT,
-                day_number=self.day_count,
-                data={"action": "poison"}
-            )
+            # await self.event_service.record_event(
+            #     session_id=self.session.id,
+            #     event_type=EventType.WITCH_POISON,
+            #     content=f"女巫使用毒药击杀了{target_player.name}",
+            #     actor_id=witch_id,
+            #     target_id=target_id,
+            #     phase=GamePhase.NIGHT,
+            #     day_number=self.day_count,
+            #     data={"action": "poison"}
+            # )
 
     async def _execute_hunter_shot(self, hunter_id: str, target_id: str) -> None:
         """Execute hunter shot action."""
@@ -689,7 +761,7 @@ class AIGameEngine:
 
         if target_player:
             # Log hunter shot to console
-            logger.info(f"🔫 猎人开枪: {target_player.name}")
+            # logger.info(f"🔫 猎人开枪: {target_player.name}")
             print(f"[猎人开枪] 目标: {target_player.name}")
 
             # Kill target immediately
@@ -727,6 +799,14 @@ class AIGameEngine:
             if self.session.night_actions.witch_save:
                 logger.info(f"🧪 女巫使用解药救活了 {target_name}")
                 print(f"[女巫解药] {target_name} 被救活")
+                await self.event_service.record_event(
+                    session_id=self.session.id,
+                    event_type=EventType.WITCH_SAVE,
+                    content=f"女巫使用解药救活了 {target_name}",
+                    phase=GamePhase.NIGHT,
+                    day_number=self.day_count,
+                    target_id=target_id,
+                    target_name=target_name)
             else:
                 await self._eliminate_player(target_id, "狼人击杀")
                 night_deaths.append({
@@ -734,7 +814,7 @@ class AIGameEngine:
                     "player_name": target_name,
                     "cause": "狼人击杀"
                 })
-        
+      
         # Check witch poison
         if hasattr(self.session.night_actions, 'witch_poison_target') and self.session.night_actions.witch_poison_target:
             poison_target = self.session.night_actions.witch_poison_target
@@ -796,34 +876,37 @@ class AIGameEngine:
         agent = self.agents.get(player_id)
         if not agent:
             return
-        
-        try:
-            # Get last words from agent
-            game_state = await self._create_game_state(player_id)
-            game_state.my_status = "dead"
-            action = await agent.make_decision(game_state, ["last_words"])
-            
-            if action.content:
-                logger.info(f"💀 {player.name} 的遗言: {action.content}")
-                print(f"[遗言] {player.name}: {action.content}")
-                #加入玩家memory
-                msg = Msg(role="system", content=f"{player.name} 遗言: {action.content}", name="system")
-                for agent_id, agent in self.agents.items():
-                    if self._is_player_alive(agent_id) and agent.agent:
-                        try:
-                            await agent.agent.memory.add(msg)
-                        except Exception as e:
-                            logger.warning(f"Failed to add memory to agent {agent.name}: {e}")
-                await self.event_service.record_event(
-                    session_id=self.session.id,
-                    event_type=EventType.PLAYER_SPEECH,
-                    content=f"{player.name} 遗言: {action.content}",
-                    actor_id=player_id,
-                    phase=GamePhase.DAY_DISCUSSION,
-                    day_number=self.day_count
-                )
-        except Exception as e:
-            logger.error(f"Error getting last words from {player.name}: {e}")
+        #若果是猎人
+        if player.role == Role.HUNTER:
+            await self._process_hunter_shot(player_id)
+        else:    
+            try:
+                # Get last words from agent
+                game_state = await self._create_game_state(player_id)
+                game_state.my_status = "dead"
+                action = await agent.make_decision(game_state, ["last_words"])
+                
+                if action.content:
+                    logger.info(f"💀 {player.name} 的遗言: {action.content}")
+                    print(f"[遗言] {player.name}: {action.content}")
+                    #加入玩家memory
+                    msg = Msg(role="system", content=f"{player.name} 遗言: {action.content}", name="system")
+                    for agent_id, agent in self.agents.items():
+                        if self._is_player_alive(agent_id) and agent.agent:
+                            try:
+                                await agent.agent.memory.add(msg)
+                            except Exception as e:
+                                logger.warning(f"Failed to add memory to agent {agent.name}: {e}")
+                    await self.event_service.record_event(
+                        session_id=self.session.id,
+                        event_type=EventType.PLAYER_SPEECH,
+                        content=f"{player.name} 遗言: {action.content}",
+                        actor_id=player_id,
+                        phase=GamePhase.DAY_DISCUSSION,
+                        day_number=self.day_count
+                    )
+            except Exception as e:
+                logger.error(f"Error getting last words from {player.name}: {e}")
     
     async def _process_sheriff_election(self) -> None:
         """Process sheriff election (day 1 only)."""
@@ -847,6 +930,14 @@ class AIGameEngine:
                             player = self._get_player_by_id(agent_id)
                             logger.info(f"🎖️ {player.name} 参与竞选警长")
                             print(f"[竞选] {player.name} 参与竞选警长")
+                            await self.event_service.record_event(
+                                session_id=self.session.id,
+                                event_type=EventType.SHERIFF_CANDIDACY,
+                                content=f"{player.name} 参与竞选警长",
+                                phase=GamePhase.SHERIFF_ELECTION,
+                                day_number=self.day_count,
+                                actor_id=player.id,
+                                actor_name=player.name)
                         # Players who decline don't need to say anything
                         break  # Success, exit retry loop
                     except Exception as e:
@@ -873,7 +964,7 @@ class AIGameEngine:
                 
                 player = self._get_player_by_id(candidate["id"])
                 if action.content and player:
-                    logger.info(f"📢 {player.name}: {action.content[:100]}...")
+                    # logger.info(f"📢 {player.name}: {action.content[:100]}...")
                     print(f"[竞选发言] {player.name}: {action.content}")
                     #添加到event_service
                     await self.event_service.record_event(
@@ -909,6 +1000,16 @@ class AIGameEngine:
                             voter = self._get_player_by_id(agent_id)
                             logger.info(f"🗳️ {voter.name} 投票给 {target_player.name}")
                             voting_record[voter.name] = target_player.name
+                            await self.event_service.record_event(
+                                session_id=self.session.id,
+                                event_type=EventType.PLAYER_VOTE,
+                                content=f"{voter.name} 投票给 {target_player.name}",
+                                phase=GamePhase.VOTING,
+                                day_number=self.day_count,
+                                actor_id=voter.id,
+                                actor_name=voter.name,
+                                target_id=target_player.id,
+                                target_name=target_player.name)
                 except Exception as e:
                     logger.error(f"Error in sheriff vote from {agent.name}: {e}")
         voting_name = "警长竞选投票"
@@ -927,9 +1028,16 @@ class AIGameEngine:
             if sheriff:
                 self.session.sheriff = {"player_id": sheriff_id, "player_name": sheriff.name}
                 sheriff.set_as_sheriff()  # Set sheriff status and voting weight
-
                 logger.info(f"🎖️ {sheriff.name} 当选警长！")
                 print(f"[警长竞选] {sheriff.name} 当选警长！")
+                await self.event_service.record_event(
+                    session_id=self.session.id,
+                    event_type=EventType.SHERIFF_ELECTED,
+                    content=f"{sheriff.name} 当选警长！",
+                    phase=GamePhase.DAY_DISCUSSION,
+                    day_number=self.day_count,
+                    actor_id=sheriff.id,
+                    actor_name=sheriff.name)
         elif len(candidates) == 1:
             # Only one candidate, auto-elect
             sheriff_id = candidates[0]["id"]
@@ -939,6 +1047,14 @@ class AIGameEngine:
                 sheriff.set_as_sheriff()  # Set sheriff status and voting weight
                 logger.info(f"🎖️ {sheriff.name} 自动当选警长！")
                 print(f"[警长竞选] {sheriff.name} 自动当选警长（唯一竞选者）")
+                await self.event_service.record_event(
+                    session_id=self.session.id,
+                    event_type=EventType.SHERIFF_ELECTED,
+                    content=f"{sheriff.name} 自动当选警长！",
+                    phase=GamePhase.DAY_DISCUSSION,
+                    day_number=self.day_count,
+                    actor_id=sheriff.id,
+                    actor_name=sheriff.name)
 
     async def _eliminate_player(self, player_id: str, reason: str) -> None:
         """Eliminate a player from the game."""
@@ -960,6 +1076,7 @@ class AIGameEngine:
             event_type=EventType.PLAYER_DEATH,
             content=f"{player.name} 被淘汰：{reason}",
             actor_id=player_id,
+            actor_name=player.name,
             phase=self.session.current_phase,
             day_number=self.day_count
         )
@@ -978,7 +1095,15 @@ class AIGameEngine:
 
         if action.action_type == "hunter_shoot" and action.target:
             await self._eliminate_player(action.target, "猎人开枪")
-
+        else:
+            await self.event_service.record_event(
+                session_id=self.session.id,
+                event_type=EventType.HUNTER_SHOOT,
+                content=f"猎人选择不开枪",
+                phase=GamePhase.DAY_DISCUSSION,
+                day_number=self.day_count,
+                actor_id=hunter_id,
+                actor_name=hunter_agent.name)
     def _get_night_actions_for_role(self, role: Role) -> List[str]:
         """Get available actions for a role during night."""
         actions = {
@@ -1105,16 +1230,23 @@ class AIGameEngine:
             p for p in self.room.players
             if p.role == Role.WEREWOLF and p.status == PlayerStatus.ALIVE
         ]
-        alive_others = [
+        alive_village = [
             p for p in self.room.players
-            if p.role != Role.WEREWOLF and p.status == PlayerStatus.ALIVE
+            if p.role == Role.VILLAGER and p.status == PlayerStatus.ALIVE
+        ]
+        alive_special = [
+            p for p in self.room.players
+            if p.role in [Role.SEER, Role.WITCH, Role.HUNTER] and p.status == PlayerStatus.ALIVE
         ]
 
         if len(alive_werewolves) == 0:
-            await self._end_game(Team.VILLAGER, "所有狼人被消灭")
+            await self._end_game(Team.GOOD, "所有狼人被消灭")
             return True
-        elif len(alive_werewolves) >= len(alive_others):
-            await self._end_game(Team.WEREWOLF, "狼人数量大于等于好人")
+        elif len(alive_village) == 0:
+            await self._end_game(Team.WEREWOLF, "村民全灭")
+            return True
+        elif len(alive_special) == 0:
+            await self._end_game(Team.WEREWOLF, "神全灭")
             return True
 
         return False
@@ -1316,23 +1448,22 @@ class AIGameEngine:
         if not self.session:
             return ""
 
-        # 从 EventService 获取当前对局的事件，过滤当日的发言事件
+        # 从 EventService 获取当前对局的事件，过滤当日的总结
         all_events = self.event_service.get_session_events(self.session.id)
-        speech_events = [
+        daily_summary_events = [
             e for e in all_events
-            if e.event_type == EventType.PLAYER_SPEECH and e.day_count == self.day_count
+            if e.event_type == EventType.PLAYER_SPEECH or e.event_type == EventType.SHERIFF_SPEECH or e.event_type == EventType.DEATH_ANNOUNCE or e.event_type == EventType.SEER_CHECK or e.event_type == EventType.WITCH_SAVE or e.event_type == EventType.WITCH_POISON or e.event_type == EventType.HUNTER_SHOOT and e.day_count == self.day_count
         ]
 
-        speech_summary = ""
-        for event in speech_events:
-            speech_summary += f"{event.actor_name}（{event.actor_id}）发言：{event.content}\n"
+        daily_summary = ""
+        for event in daily_summary_events:
+            daily_summary += f"{event.actor_name}（{event.actor_id}）：{event.content}\n"
 
-        logger.info(f"第{self.day_count}天发言：{speech_summary}")
 
         # 调用 LLM 总结发言，重点关注“保谁 / 踩谁”
-        prompt = f"总结第{self.day_count}天的所有发言，重点关注谁保了谁、谁踩了谁，不要漏掉任何发言：\n{speech_summary}"
+        prompt = f"总结第{self.day_count}天的所有事件，重点关注发言中谁保了谁、谁踩了谁，不要漏掉死亡事件：\n{daily_summary}"
         msg = Msg(role="user", content=prompt, name="user")
         summary = await self.room.summary_agent(msg)
-        logger.info(f"第{self.day_count}天发言总结：{summary.content}")
+        logger.info(f"第{self.day_count}天事件总结：{summary.content}")
         return summary.content
 

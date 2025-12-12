@@ -106,11 +106,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   setEventFilters: (eventFilters) => set({ eventFilters }),
 
-  toggleEventFilter: (category) => set((state) => ({
-    eventFilters: state.eventFilters.includes(category)
+  toggleEventFilter: (category) => set((state) => {
+    // 如果点击"全部"，清除所有过滤器
+    if (category === 'ALL' as any) {
+      return { eventFilters: [] };
+    }
+
+    // 正常的类别切换逻辑
+    const newFilters = state.eventFilters.includes(category)
       ? state.eventFilters.filter(c => c !== category)
-      : [...state.eventFilters, category]
-  })),
+      : [...state.eventFilters, category];
+
+    return { eventFilters: newFilters };
+  }),
 
   setAutoScroll: (autoScroll) => set({ autoScroll }),
 

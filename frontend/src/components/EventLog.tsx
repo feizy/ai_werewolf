@@ -105,7 +105,7 @@ export const EventLog: React.FC<EventLogProps> = ({
   console.log('📝 EventLog组件接收到的事件数量:', events.length);
   console.log('📝 事件列表:', events);
 
-  // 过滤事件
+  // 过滤事件 - 当没有过滤器时显示所有事件
   const filteredEvents = filters.length === 0
     ? events
     : events.filter(e => filters.includes(e.category));
@@ -161,7 +161,26 @@ export const EventLog: React.FC<EventLogProps> = ({
         display: 'flex',
         flexWrap: 'wrap',
         gap: '6px',
+        alignItems: 'center',
       }}>
+        {/* 显示全部按钮 */}
+        <button
+          onClick={() => onFilterToggle('ALL' as any)}
+          style={{
+            padding: '4px 10px',
+            fontSize: '11px',
+            borderRadius: '4px',
+            border: 'none',
+            cursor: 'pointer',
+            background: filters.length === 0 ? '#22c55e30' : 'transparent',
+            color: filters.length === 0 ? '#22c55e' : '#64748b',
+            fontWeight: 600,
+            transition: 'all 0.2s ease',
+          }}
+        >
+          ✅ 全部
+        </button>
+
         {categories.map(category => {
           const config = EVENT_CATEGORY_CONFIG[category];
           const isActive = filters.length === 0 || filters.includes(category);

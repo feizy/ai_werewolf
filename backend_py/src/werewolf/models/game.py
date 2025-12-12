@@ -11,6 +11,7 @@ from .player import Player, Role, Team, PlayerStatus
 
 class GamePhase(str, Enum):
     """Game phases."""
+    INIT = "init"
     NIGHT = "night"
     SHERIFF_ELECTION = "sheriff_election"
     DAY_DISCUSSION = "day_discussion"
@@ -38,7 +39,7 @@ class EventType(str, Enum):
     SEER_CHECK = "seer_check"
     WITCH_SAVE = "witch_save"
     WITCH_POISON = "witch_poison"
-
+    WEREWOLF_DISCUSS = "werewolf_discuss"
     # Day events
     SHERIFF_ELECTION_START = "sheriff_election_start"
     SHERIFF_CANDIDACY = "sheriff_candidacy"
@@ -229,7 +230,7 @@ class GameSession:
         self.room_id = room_id
         self.players = players
         self.day_count = 1
-        self.current_phase = GamePhase.NIGHT
+        self.current_phase = GamePhase.INIT
         self.phase_start_time = datetime.now()
         self.events: List[GameEvent] = []
         self.daily_snapshots: List[DailySnapshot] = []

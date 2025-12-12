@@ -124,7 +124,9 @@ class EventService:
         phase: GamePhase,
         day_number: int,
         actor_id: Optional[str] = None,
+        actor_name: Optional[str] = None,
         target_id: Optional[str] = None,
+        target_name: Optional[str] = None,
         data: Optional[Dict[str, Any]] = None,
         visible_to_players: Optional[List[str]] = None
     ) -> GameEvent:
@@ -151,7 +153,9 @@ class EventService:
             day_count=day_number,
             content=content,
             actor_id=actor_id,
+            actor_name=actor_name,
             target_id=target_id,
+            target_name=target_name,
             details=details,
             visibility=visibility
         )
