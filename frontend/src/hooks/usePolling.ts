@@ -3,88 +3,6 @@ import { useGameStore } from '@/store/gameStore';
 import { GameEvent, GameState, Player } from '@/types/game';
 import { getFullGameData, getGameEvents, cleanupGame } from '@/services/api';
 
-// 轮询后端获取游戏状态（备选方案，当 WebSocket 不可用时使用）
-const API_BASE = 'http://localhost:8001';
-
-interface BackendGameState {
-  id: string;
-  room_id: string;
-  day_count: number;
-  current_phase: string;
-  players: Array<{
-    id: string;
-    name: string;
-    position: number;
-    role?: string;
-    status: string;
-    is_sheriff: boolean;
-    voting_weight: number;
-    role_abilities?: {
-      witch_has_antidote?: boolean;
-      witch_has_poison?: boolean;
-      hunter_can_shoot?: boolean;
-    };
-  }>;
-  events: Array<{
-    id: string;
-    timestamp: string;
-    day_count: number;
-    phase: string;
-    type: string;
-    content: string;
-    actor_id?: string;
-    actor_name?: string;
-    target_id?: string;
-    target_name?: string;
-  }>;
-  sheriff_id?: string;
-  winner?: string;
-  is_running: boolean;
-}
-
-// 转换后端数据格式到前端格式
-export function convertGameState(backend: BackendGameState): GameState {
-  const players: Player[] = backend.players.map(p => ({
-    id: p.id,
-    name: p.name,
-    position: p.position,
-    role: p.role as Player['role'],
-    status: p.status === 'alive' ? 'alive' : 'dead',
-    isSheriff: p.is_sheriff,
-    votingWeight: p.voting_weight,
-    abilities: p.role_abilities ? {
-      witchHasAntidote: p.role_abilities.witch_has_antidote,
-      witchHasPoison: p.role_abilities.witch_has_poison,
-      hunterCanShoot: p.role_abilities.hunter_can_shoot,
-    } : undefined,
-  }));
-
-  const events: GameEvent[] = backend.events.map(e => ({
-    id: e.id,
-    timestamp: e.timestamp,
-    day: e.day_count,
-    phase: convertPhase(e.phase),
-    category: convertEventType(e.type),
-    content: e.content,
-    actorId: e.actor_id,
-    actorName: e.actor_name,
-    targetId: e.target_id,
-    targetName: e.target_name,
-  }));
-
-  return {
-    id: backend.id,
-    roomId: backend.room_id,
-    day: backend.day_count,
-    phase: convertPhase(backend.current_phase),
-    players,
-    events,
-    sheriffId: backend.sheriff_id,
-    winner: backend.winner as GameState['winner'],
-    isRunning: backend.is_running,
-  };
-}
-
 function convertPhase(phase: string): GameState['phase'] {
   const phaseMap: Record<string, GameState['phase']> = {
     'night': 'night',
@@ -164,12 +82,12 @@ export const usePolling = (roomId: string | null, interval: number = 2000) => {
         const gameData = await getFullGameData(roomId);
         const eventsData = await getGameEvents(roomId);
 
-        const gameState = {
+        const gameState: GameState = {
           id: gameData.session_id,
           roomId: gameData.room_id,
           day: gameData.day_count,
           phase: gameData.current_phase === 'running' ? 'day_discussion' : convertPhase(gameData.current_phase),
-          players: gameData.players.map((p: any) => ({
+          players: gameData.players.map((p: any): Player => ({
             id: p.id,
             name: p.name,
             position: p.position,
@@ -183,7 +101,7 @@ export const usePolling = (roomId: string | null, interval: number = 2000) => {
               hunterCanShoot: p.role_abilities.hunter_can_shoot,
             } : undefined,
           })),
-          events: eventsData.map((e: any) => ({
+          events: eventsData.map((e: any): GameEvent => ({
             id: e.id,
             timestamp: e.timestamp,
             day: e.day_count,
@@ -195,7 +113,7 @@ export const usePolling = (roomId: string | null, interval: number = 2000) => {
             targetId: e.target_id,
             targetName: e.target_name,
           })),
-          winner: gameData.winner ? (gameData.winner === 'werewolf' ? 'werewolf' : 'villager') : undefined,
+          winner: gameData.winner ? (gameData.winner === 'werewolf' ? 'werewolf' : 'villager' as const) : undefined,
           isRunning: gameData.is_running,
         };
 
@@ -217,7 +135,7 @@ export const usePolling = (roomId: string | null, interval: number = 2000) => {
       if (!roomId || !isActiveRef.current) return;
 
       try {
-        const eventsData = await getGameEvents(roomId);
+        const eventsData = await getGameEvents(roomId) as any[];
 
         // 检查是否有新的事件
         const latestEventId = eventsData.length > 0 ? eventsData[eventsData.length - 1].id : null;
@@ -227,32 +145,35 @@ export const usePolling = (roomId: string | null, interval: number = 2000) => {
 
         // 从事件数据中推断游戏状态
         const latestPhaseEvent = eventsData
-          .filter(e => e.type === 'phase_change' || e.type === 'game_start' || e.type === 'game_end')
-          .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
+          .filter((e: any) => e.type === 'phase_change' || e.type === 'game_start' || e.type === 'game_end')
+          .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
 
         const currentPhase = latestPhaseEvent ? convertPhase(latestPhaseEvent.phase) : 'day_discussion';
-        const currentDay = Math.max(...eventsData.map(e => e.day_count), 1);
-        const hasGameEndEvent = eventsData.some(e => e.type === 'game_end');
+        const currentDay = Math.max(...eventsData.map((e: any) => e.day_count), 1);
+        const hasGameEndEvent = eventsData.some((e: any) => e.type === 'game_end');
 
         // 更新事件和状态
-        setGameState(prevState => ({
-          ...prevState,
-          day: currentDay,
-          phase: currentPhase,
-          isRunning: !hasGameEndEvent,
-          events: eventsData.map((e: any) => ({
-            id: e.id,
-            timestamp: e.timestamp,
-            day: e.day_count,
-            phase: convertPhase(e.phase),
-            category: convertEventType(e.type || e.event_type),
-            content: e.content,
-            actorId: e.actor_id,
-            actorName: e.actor_name,
-            targetId: e.target_id,
-            targetName: e.target_name,
-          }))
-        }));
+        setGameState((prevState: GameState | null) => {
+          if (!prevState) return prevState;
+          return {
+            ...prevState,
+            day: currentDay,
+            phase: currentPhase,
+            isRunning: !hasGameEndEvent,
+            events: eventsData.map((e: any): GameEvent => ({
+              id: e.id,
+              timestamp: e.timestamp,
+              day: e.day_count,
+              phase: convertPhase(e.phase),
+              category: convertEventType(e.type || e.event_type),
+              content: e.content,
+              actorId: e.actor_id,
+              actorName: e.actor_name,
+              targetId: e.target_id,
+              targetName: e.target_name,
+            }))
+          };
+        });
 
         lastEventIdRef.current = latestEventId;
       } catch (err) {
@@ -266,26 +187,29 @@ export const usePolling = (roomId: string | null, interval: number = 2000) => {
 
       try {
         const gameData = await getFullGameData(roomId);
-        setGameState(prevState => ({
-          ...prevState,
-          id: gameData.session_id,
-          roomId: gameData.room_id,
-          players: gameData.players.map((p: any) => ({
-            id: p.id,
-            name: p.name,
-            position: p.position,
-            role: p.role,
-            status: p.status === 'alive' ? 'alive' : 'dead',
-            isSheriff: p.is_sheriff,
-            votingWeight: p.voting_weight,
-            abilities: p.role_abilities ? {
-              witchHasAntidote: p.role_abilities.witch_has_antidote,
-              witchHasPoison: p.role_abilities.witch_has_poison,
-              hunterCanShoot: p.role_abilities.hunter_can_shoot,
-            } : undefined,
-          })),
-          winner: gameData.winner ? (gameData.winner === 'werewolf' ? 'werewolf' : 'villager') : undefined,
-        }));
+        setGameState((prevState: GameState| null) => {
+          if (!prevState) return prevState;
+          return {
+            ...prevState,
+            id: gameData.session_id,
+            roomId: gameData.room_id,
+            players: gameData.players.map((p: any): Player => ({
+              id: p.id,
+              name: p.name,
+              position: p.position,
+              role: p.role,
+              status: p.status === 'alive' ? 'alive' : 'dead',
+              isSheriff: p.is_sheriff,
+              votingWeight: p.voting_weight,
+              abilities: p.role_abilities ? {
+                witchHasAntidote: p.role_abilities.witch_has_antidote,
+                witchHasPoison: p.role_abilities.witch_has_poison,
+                hunterCanShoot: p.role_abilities.hunter_can_shoot,
+              } : undefined,
+            })),
+            winner: gameData.winner ? (gameData.winner === 'werewolf' ? 'werewolf' : 'villager' as const) : undefined,
+          };
+        });
         setConnectionStatus('connected');
       } catch (err) {
         console.warn('状态更新失败:', err);

@@ -30,7 +30,9 @@
       "Bash(do:*)",
       "Bash(echo:*)",
       "Bash(done)",
-      "Bash(for:*)"
+      "Bash(for:*)",
+      "Bash(npm run build)",
+      "Bash(npx tsc:*)"
     ],
     "deny": [],
     "ask": []
