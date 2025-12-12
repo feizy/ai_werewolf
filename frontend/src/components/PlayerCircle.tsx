@@ -4,13 +4,13 @@ import { Player } from '@/types/game';
 import { PlayerCard } from './PlayerCard';
 
 interface PlayerCircleProps {
-  players: Player[];
+  players?: Player[];
   selectedPlayerId: string | null;
   onPlayerClick: (playerId: string) => void;
 }
 
 export const PlayerCircle: React.FC<PlayerCircleProps> = ({
-  players,
+  players = [],
   selectedPlayerId,
   onPlayerClick,
 }) => {
@@ -19,7 +19,8 @@ export const PlayerCircle: React.FC<PlayerCircleProps> = ({
   const centerY = 320;
 
   const sortedPlayers = useMemo(() => {
-    return [...players].sort((a, b) => a.position - b.position);
+    if (!players || !Array.isArray(players)) return [];
+    return [...players].sort((a, b) => (a.position || 0) - (b.position || 0));
   }, [players]);
 
   const playerPositions = useMemo(() => {

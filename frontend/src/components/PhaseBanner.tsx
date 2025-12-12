@@ -3,19 +3,19 @@ import { motion } from 'framer-motion';
 import { GamePhaseType, PHASE_CONFIG } from '@/types/game';
 
 interface PhaseBannerProps {
-  phase: GamePhaseType;
-  day: number;
-  isRunning: boolean;
+  phase?: GamePhaseType;
+  day?: number;
+  isRunning?: boolean;
   winner?: 'werewolf' | 'villager';
 }
 
 export const PhaseBanner: React.FC<PhaseBannerProps> = ({
-  phase,
-  day,
-  isRunning,
+  phase = 'day_discussion',
+  day = 1,
+  isRunning = false,
   winner,
 }) => {
-  const phaseConfig = PHASE_CONFIG[phase];
+  const phaseConfig = PHASE_CONFIG[phase] || PHASE_CONFIG['day_discussion'];
 
   return (
     <motion.div

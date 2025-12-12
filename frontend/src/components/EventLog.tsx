@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { GameEvent, EventCategory, EVENT_CATEGORY_CONFIG, PHASE_CONFIG } from '@/types/game';
 
 interface EventLogProps {
-  events: GameEvent[];
+  events?: GameEvent[];
   filters: EventCategory[];
   autoScroll: boolean;
   onFilterToggle: (category: EventCategory) => void;
@@ -94,21 +94,24 @@ const EventItem: React.FC<{ event: GameEvent }> = ({ event }) => {
 };
 
 export const EventLog: React.FC<EventLogProps> = ({
-  events,
+  events = [],
   filters,
   autoScroll,
   onFilterToggle,
 }) => {
   const listRef = useRef<HTMLDivElement>(null);
 
+  // 确保events是数组
+  const safeEvents = Array.isArray(events) ? events : [];
+
   // 调试信息
-  console.log('📝 EventLog组件接收到的事件数量:', events.length);
-  console.log('📝 事件列表:', events);
+  console.log('📝 EventLog组件接收到的事件数量:', safeEvents.length);
+  console.log('📝 事件列表:', safeEvents);
 
   // 过滤事件 - 当没有过滤器时显示所有事件
   const filteredEvents = filters.length === 0
-    ? events
-    : events.filter(e => filters.includes(e.category));
+    ? safeEvents
+    : safeEvents.filter(e => filters.includes(e.category));
 
   // 自动滚动
   useEffect(() => {

@@ -7,8 +7,8 @@ import { EventLog } from './components/EventLog';
 import { PhaseBanner } from './components/PhaseBanner';
 import { GameStats } from './components/GameStats';
 import { useGameStore } from './store/gameStore';
-import { usePolling, convertGameState } from './hooks/usePolling';
-import { checkHealth, createRoom, joinRoom, startGame, cleanupGame, API_BASE } from './services/api';
+import { usePolling, convertGameState, convertPhase, convertEventType } from './hooks/usePolling';
+import { checkHealth, createRoom, joinRoom, startGame, cleanupGame, getRoom, getFullGameData, getGameEvents, API_BASE } from './services/api';
 import { LLMConfig } from './types/game';
 
 // Provider options for room creation
@@ -104,9 +104,88 @@ const App: React.FC = () => {
     }
   }, [gameState, currentView, setCurrentView, currentGameId]);
 
-  const handleConnect = () => {
-    if (inputRoomId.trim()) {
-      setRoomId(inputRoomId.trim());
+  const handleConnect = async () => {
+    if (!inputRoomId.trim()) return;
+
+    try {
+      const roomId = inputRoomId.trim();
+      setRoomId(roomId);
+
+      // 获取房间信息
+      console.log('🔍 获取房间信息:', roomId);
+      const roomData = await getRoom(roomId);
+      setRoom(roomData);
+
+      // 检查是否已经有游戏在进行
+      console.log('🎮 检查游戏状态:', roomId);
+      try {
+        const gameData = await getFullGameData(roomId);
+        const eventsData = await getGameEvents(roomId);
+        console.log('✅ 发现正在进行的游戏:', gameData);
+
+        if (gameData) {
+          console.log('🎯 发现游戏数据，进入游戏页面（进行中或已结束）');
+          // 设置游戏状态并直接进入游戏页面（支持进行中和已结束的游戏）
+          const gameState: GameState = {
+            id: gameData.session_id,
+            roomId: gameData.room_id,
+            day: gameData.day_count,
+            phase: gameData.current_phase === 'running' ? 'day_discussion' : convertPhase(gameData.current_phase),
+            players: gameData.players.map((p: any): Player => ({
+              id: p.id,
+              name: p.name,
+              position: p.position,
+              role: p.role,
+              status: p.status === 'alive' ? 'alive' : 'dead',
+              isSheriff: p.is_sheriff,
+              votingWeight: p.voting_weight,
+              abilities: p.role_abilities ? {
+                witchHasAntidote: p.role_abilities.witch_has_antidote,
+                witchHasPoison: p.role_abilities.witch_has_poison,
+                hunterCanShoot: p.role_abilities.hunter_can_shoot,
+              } : undefined,
+            })),
+            events: eventsData.map((e: any): GameEvent => ({
+              id: e.id,
+              timestamp: e.timestamp,
+              day: e.day_count,
+              phase: convertPhase(e.phase),
+              category: convertEventType(e.type || e.event_type),
+              content: e.content,
+              actorId: e.actor_id,
+              actorName: e.actor_name,
+              targetId: e.target_id,
+              targetName: e.target_name,
+            })),
+            winner: gameData.winner ? (gameData.winner === 'werewolf' ? 'werewolf' : 'villager' as const) : undefined,
+            isRunning: gameData.is_running,
+          };
+
+          setGameState(gameState);
+          setCurrentView('game');
+          setCurrentGameId(gameData.session_id);
+
+          if (gameData.is_running) {
+            console.log('✅ 游戏正在进行中');
+          } else if (gameData.winner) {
+            console.log('🏆 游戏已结束，获胜者:', gameData.winner);
+          }
+        } else {
+          // 没有游戏在进行，进入房间设置页面
+          setCurrentView('room-setup');
+        }
+      } catch (gameError) {
+        console.log('📝 没有正在进行的游戏，进入房间设置页面');
+        setCurrentView('room-setup');
+      }
+
+      console.log('✅ 成功连接到房间:', roomData.name);
+    } catch (error) {
+      console.error('❌ 连接房间失败:', error);
+      alert(`连接房间失败: ${error instanceof Error ? error.message : '房间ID不存在'}`);
+      // 清空无效的房间ID
+      setRoomId('');
+      setInputRoomId('');
     }
   };
 
@@ -962,7 +1041,7 @@ const App: React.FC = () => {
           gap: '24px',
           overflowY: 'auto',
         }}>
-          {gameState ? (
+          {gameState && gameState.phase && gameState.players ? (
             <>
               {/* 阶段横幅 */}
               <PhaseBanner

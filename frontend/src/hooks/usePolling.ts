@@ -2,8 +2,9 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useGameStore } from '@/store/gameStore';
 import { GameEvent, GameState, Player } from '@/types/game';
 import { getFullGameData, getGameEvents, cleanupGame } from '@/services/api';
+import { None } from 'framer-motion';
 
-function convertPhase(phase: string): GameState['phase'] {
+export function convertPhase(phase: string): GameState['phase'] {
   const phaseMap: Record<string, GameState['phase']> = {
     'night': 'night',
     'sheriff_election': 'sheriff_election',
@@ -14,12 +15,17 @@ function convertPhase(phase: string): GameState['phase'] {
   return phaseMap[phase] || 'day_discussion';
 }
 
-function convertEventType(type: string): GameEvent['category'] {
+export function convertEventType(type: string): GameEvent['category'] {
   const typeMap: Record<string, GameEvent['category']> = {
     'game_start': 'MODERATOR',
     'game_end': 'MODERATOR',
     'phase_change': 'MODERATOR',
     'werewolf_kill': 'ACTION',
+    'werewolf_discuss': 'ACTION',
+    'sheriff_election_start': 'MODERATOR',
+    'sheriff_candidacy': 'ACTION',
+    'sheriff_speech': 'ACTION',
+    'sheriff_elected': 'MODERATOR',
     'seer_check': 'ACTION',
     'witch_save': 'ACTION',
     'witch_poison': 'ACTION',
@@ -39,35 +45,8 @@ export const usePolling = (roomId: string | null, interval: number = 2000) => {
   const eventIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const stateIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastEventIdRef = useRef<string | null>(null);
-  const isActiveRef = useRef<boolean>(true);
 
   const { setGameState, setConnectionStatus } = useGameStore();
-
-  // 监听页面可见性变化
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        console.log('页面隐藏，暂停轮询');
-        isActiveRef.current = false;
-      } else {
-        console.log('页面显示，恢复轮询');
-        isActiveRef.current = true;
-      }
-    };
-
-    const handleBeforeUnload = () => {
-      console.log('页面即将卸载，标记为非活跃状态');
-      isActiveRef.current = false;
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('beforeunload', handleBeforeUnload);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, []);
 
   const startPolling = useCallback(() => {
     // 停止现有轮询
@@ -75,12 +54,17 @@ export const usePolling = (roomId: string | null, interval: number = 2000) => {
 
     // 立即获取一次完整数据
     (async () => {
-      if (!roomId || !isActiveRef.current) return;
+      if (!roomId) return;
 
       try {
         // 首次获取完整数据
+        console.log('🔄 获取游戏数据:', roomId);
         const gameData = await getFullGameData(roomId);
+        console.log('✅ 游戏数据获取成功:', gameData);
+
+        console.log('🔄 获取事件数据:', roomId);
         const eventsData = await getGameEvents(roomId);
+        console.log('✅ 事件数据获取成功, 数量:', eventsData.length);
 
         const gameState: GameState = {
           id: gameData.session_id,
@@ -117,6 +101,7 @@ export const usePolling = (roomId: string | null, interval: number = 2000) => {
           isRunning: gameData.is_running,
         };
 
+        console.log('🎮 设置游戏状态:', gameState);
         setGameState(gameState);
         setConnectionStatus('connected');
 
@@ -124,15 +109,16 @@ export const usePolling = (roomId: string | null, interval: number = 2000) => {
         if (gameState.events.length > 0) {
           lastEventIdRef.current = gameState.events[gameState.events.length - 1].id;
         }
+        console.log('✅ 初始数据设置完成');
       } catch (err) {
-        console.error('初始数据获取失败:', err);
+        console.error('❌ 初始数据获取失败:', err);
         setConnectionStatus('error');
       }
     })();
 
     // 快速事件轮询（2秒）- 只获取事件
     eventIntervalRef.current = setInterval(async () => {
-      if (!roomId || !isActiveRef.current) return;
+      if (!roomId) return;
 
       try {
         const eventsData = await getGameEvents(roomId) as any[];
@@ -153,7 +139,7 @@ export const usePolling = (roomId: string | null, interval: number = 2000) => {
         const hasGameEndEvent = eventsData.some((e: any) => e.type === 'game_end');
 
         // 更新事件和状态
-        setGameState((prevState: GameState | null) => {
+        setGameState((prevState: GameState| null) => {
           if (!prevState) return prevState;
           return {
             ...prevState,
@@ -183,7 +169,7 @@ export const usePolling = (roomId: string | null, interval: number = 2000) => {
 
     // 低频率完整状态更新（30秒）- 获取玩家信息等
     stateIntervalRef.current = setInterval(async () => {
-      if (!roomId || !isActiveRef.current) return;
+      if (!roomId) return;
 
       try {
         const gameData = await getFullGameData(roomId);

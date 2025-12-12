@@ -2,15 +2,23 @@ import React from 'react';
 import { Player, ROLE_CONFIG } from '@/types/game';
 
 interface GameStatsProps {
-  players: Player[];
+  players?: Player[];
 }
 
 export const GameStats: React.FC<GameStatsProps> = ({ players }) => {
-  const alivePlayers = players.filter(p => p.status === 'alive');
-  const deadPlayers = players.filter(p => p.status === 'dead');
+  // 确保players是一个数组
+  const safePlayers = players || [];
+
+  const alivePlayers = safePlayers.filter(p => p.status === 'alive');
+  const deadPlayers = safePlayers.filter(p => p.status === 'dead');
   
   const aliveWerewolves = alivePlayers.filter(p => p.role === 'werewolf').length;
-  const aliveVillagers = alivePlayers.filter(p => p.role && ROLE_CONFIG[p.role].team === 'villager').length;
+  const aliveVillagers = alivePlayers.filter(p => {
+    return p.role &&
+           p.role !== 'werewolf' &&
+           p.role in ROLE_CONFIG &&
+           ROLE_CONFIG[p.role as keyof typeof ROLE_CONFIG].team === 'villager';
+  }).length;
 
   return (
     <div style={{

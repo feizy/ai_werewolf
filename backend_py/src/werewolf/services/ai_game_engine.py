@@ -1255,7 +1255,7 @@ class AIGameEngine:
         """End the game."""
         logger.info(f"Game ended. Winner: {winner.value}, Reason: {reason}")
         #打印获胜玩家
-        winner_players = [p for p in self.room.players if p.team == winner]
+        winner_players = [p.name for p in self.room.players if p.team == winner]
         logger.info(f"获胜玩家: {winner_players}")
         self.session.winner = winner
         self.session.end_reason = reason
