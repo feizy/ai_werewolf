@@ -166,18 +166,30 @@ export const usePolling = (roomId: string | null, interval: number = 2000) => {
         console.log('📝 发现新事件，数量:', eventsData.length);
 
         // 转换事件数据
-        const newEvents = eventsData.map((e: any): GameEvent => ({
-          id: e.id,
-          timestamp: e.timestamp,
-          day: e.day_count,
-          phase: convertPhase(e.phase),
-          category: convertEventType(e.type || e.event_type),
-          content: e.content,
-          actorId: e.actor_id,
-          actorName: e.actor_name,
-          targetId: e.target_id,
-          targetName: e.target_name,
-        }));
+        const newEvents = eventsData.map((e: any): GameEvent => {
+          // 检查 content 类型，调试对象格式的 content
+          if (typeof e.content === 'object') {
+            console.log('🚨 发现对象格式的事件内容:', {
+              id: e.id,
+              type: e.type,
+              contentType: typeof e.content,
+              content: e.content
+            });
+          }
+
+          return {
+            id: e.id,
+            timestamp: e.timestamp,
+            day: e.day_count,
+            phase: convertPhase(e.phase),
+            category: convertEventType(e.type || e.event_type),
+            content: e.content,
+            actorId: e.actor_id,
+            actorName: e.actor_name,
+            targetId: e.target_id,
+            targetName: e.target_name,
+          };
+        });
 
         // 使用 Zustand 的直接状态更新，避免 React 并发问题
         const { addEvents, updateGameState } = useGameStore.getState();

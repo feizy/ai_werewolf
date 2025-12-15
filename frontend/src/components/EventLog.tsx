@@ -87,7 +87,12 @@ const EventItem: React.FC<{ event: GameEvent }> = ({ event }) => {
         whiteSpace: 'pre-wrap',
         wordBreak: 'break-word',
       }}>
-        {event.content}
+        {typeof event.content === 'string'
+          ? event.content
+          : event.content && typeof event.content === 'object' && event.content.text
+            ? event.content.text
+            : JSON.stringify(event.content)
+        }
       </div>
     </motion.div>
   );

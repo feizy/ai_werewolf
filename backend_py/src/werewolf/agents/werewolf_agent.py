@@ -99,21 +99,6 @@ class SeerReactAgent(BaseGameAgent):
 
 你的回应必须是JSON格式。"""
 
-    async def make_decision(
-        self,
-        game_state: GameState,
-        available_actions: List[str]
-    ) -> AgentAction:
-        """Make seer-specific decision."""
-        # Update seer analysis - use check results
-        for player_id, info in self.player_notes.items():
-            if "查验结果" in info:
-                if "狼人" in info:
-                    self.suspicions[player_id] = 1.0
-                elif "好人" in info:
-                    self.suspicions[player_id] = 0.0
-
-        return await super().make_decision(game_state, available_actions)
 
 
 class WitchReactAgent(BaseGameAgent):
