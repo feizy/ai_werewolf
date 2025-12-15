@@ -81,6 +81,21 @@ const App: React.FC = () => {
   const [isGameStarting, setIsGameStarting] = React.useState(false);
   const [currentGameId, setCurrentGameId] = React.useState<string | null>(null);
 
+  // 调试：监听 gameState 变化
+  React.useEffect(() => {
+    if (gameState === null) {
+      console.log('🚨 gameState 被重置为 null! 当前视图:', currentView);
+    } else {
+      console.log('📊 gameState 更新:', {
+        id: gameState.id,
+        phase: gameState.phase,
+        day: gameState.day,
+        isRunning: gameState.isRunning,
+        playerCount: gameState.players?.length
+      });
+    }
+  }, [gameState, currentView]);
+
   // 当游戏开始请求发送后，或者游戏页面持续轮询
   const shouldPoll = isGameStarting || currentView === 'game';
   const pollingRoomId = shouldPoll ? (gameState?.id || currentGameId || roomId || null) : null;

@@ -229,8 +229,8 @@ export const EventLog: React.FC<EventLogProps> = ({
               <div>暂无事件</div>
             </div>
           ) : (
-            filteredEvents.map(event => (
-              <EventItem key={event.id} event={event} />
+            filteredEvents.map((event, index) => (
+              <EventItem key={`${event.id}-${index}`} event={event} />
             ))
           )}
         </AnimatePresence>

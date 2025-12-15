@@ -224,31 +224,31 @@ class AIGameEngine:
         # Each werewolf shares: 1. target suggestion, 2. brief reason
         # All wolves can see previous wolves' messages
         wolf_messages = []  # List of {"wolf": name, "target": target_name, "reason": reason}
-        for agent in werewolf_agents:
+        for i, agent in enumerate(werewolf_agents):
             try:
                 game_state = await self._create_game_state(agent.player_id)
                 game_state.known_info["potential_targets"] = [
-                    {"position": p.position, "name": p.name} 
+                    {"position": p.position, "name": p.name}
                     for p in potential_targets
                 ]
                 # Share all previous wolves' messages
                 game_state.known_info["wolf_discussion"] = wolf_messages.copy()
-                
                 action = await agent.make_decision(game_state, ["werewolf_discuss"])
-                
-                if action.target:
+                if action and action.target:
                     target_player = self._get_player_by_id(action.target)
                     if target_player:
                         # Extract brief reason from content or reasoning
                         reason = action.reasoning or action.content or "无理由"
                         if len(reason) > 50:
                             reason = reason[:50] + "..."
-                        
+
                         wolf_messages.append({
                             "wolf": agent.name,
                             "target": target_player.name,
                             "reason": reason
                         })
+
+                        print(f"[调试] 记录 {agent.name} 的建议击杀事件")
                         await self.event_service.record_event(
                             session_id=self.session.id,
                             event_type=EventType.WEREWOLF_DISCUSS,

@@ -71,7 +71,25 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setCurrentView: (currentView) => set({ currentView }),
 
   // 游戏管理
-  setGameState: (gameState) => set({ gameState }),
+  setGameState: (gameState) => {
+    console.log('🎮 GameStore setGameState 被调用:', gameState ? {
+      id: gameState.id,
+      phase: gameState.phase,
+      isRunning: gameState.isRunning,
+      playerCount: gameState.players?.length
+    } : 'null');
+
+    // 添加调用栈追踪
+    console.trace('🔍 setGameState 调用栈:');
+
+    // 如果传入的是包含 undefined 的对象，警告
+    if (gameState && gameState.id === undefined) {
+      console.error('❌ 检测到无效的 gameState:', gameState);
+      debugger; // 在浏览器中会暂停执行
+    }
+
+    return set({ gameState });
+  },
 
   updateGameState: (partial) => set((state) => ({
     gameState: state.gameState ? { ...state.gameState, ...partial } : null
@@ -87,7 +105,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   addEvents: (events) => set((state) => ({
     gameState: state.gameState ? {
       ...state.gameState,
-      events: [...state.gameState.events, ...events]
+      events: [...events]  // 替换而不是追加
     } : null
   })),
 
@@ -122,7 +140,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
   setAutoScroll: (autoScroll) => set({ autoScroll }),
 
-  reset: () => set(initialState),
+  reset: () => {
+    console.log('🚨 GameStore reset 被调用!');
+    return set(initialState);
+  },
 }));
 
 

@@ -66,43 +66,77 @@ export const usePolling = (roomId: string | null, interval: number = 2000) => {
         const eventsData = await getGameEvents(roomId);
         console.log('✅ 事件数据获取成功, 数量:', eventsData.length);
 
-        const gameState: GameState = {
-          id: gameData.session_id,
+        // 验证数据完整性
+        if (!gameData || !eventsData) {
+          throw new Error('游戏数据或事件数据为空');
+        }
+
+        console.log('📋 游戏原始数据:', {
+          id: gameData.id,
+          sessionId: gameData.session_id,
           roomId: gameData.room_id,
-          day: gameData.day_count,
-          phase: gameData.current_phase === 'running' ? 'day_discussion' : convertPhase(gameData.current_phase),
-          players: gameData.players.map((p: any): Player => ({
-            id: p.id,
-            name: p.name,
-            position: p.position,
-            role: p.role,
+          dayCount: gameData.day_count,
+          currentPhase: gameData.current_phase,
+          playersCount: gameData.players?.length,
+          eventsCount: eventsData.length
+        });
+
+        const gameState: GameState = {
+          id: gameData.id || 'unknown',  // 修复：应该是 id 而不是 session_id
+          roomId: gameData.room_id || roomId,
+          day: gameData.day_count || 1,
+          phase: gameData.current_phase === 'running' ? 'day_discussion' : convertPhase(gameData.current_phase || 'day_discussion'),
+          players: (gameData.players || []).map((p: any): Player => ({
+            id: p.id || 'unknown',
+            name: p.name || 'Unknown',
+            position: p.position || 0,
+            role: p.role || 'villager',
             status: p.status === 'alive' ? 'alive' : 'dead',
-            isSheriff: p.is_sheriff,
-            votingWeight: p.voting_weight,
+            isSheriff: p.is_sheriff || false,
+            votingWeight: p.voting_weight || 1,
             abilities: p.role_abilities ? {
               witchHasAntidote: p.role_abilities.witch_has_antidote,
               witchHasPoison: p.role_abilities.witch_has_poison,
               hunterCanShoot: p.role_abilities.hunter_can_shoot,
             } : undefined,
           })),
-          events: eventsData.map((e: any): GameEvent => ({
-            id: e.id,
-            timestamp: e.timestamp,
-            day: e.day_count,
-            phase: convertPhase(e.phase),
-            category: convertEventType(e.type || e.event_type),
-            content: e.content,
+          events: (eventsData || []).map((e: any): GameEvent => ({
+            id: e.id || 'unknown',
+            timestamp: e.timestamp || new Date().toISOString(),
+            day: e.day_count || 1,
+            phase: convertPhase(e.phase || 'day_discussion'),
+            category: convertEventType(e.type || e.event_type || 'system'),
+            content: e.content || 'Unknown event',
             actorId: e.actor_id,
             actorName: e.actor_name,
             targetId: e.target_id,
             targetName: e.target_name,
           })),
           winner: gameData.winner ? (gameData.winner === 'werewolf' ? 'werewolf' : 'villager' as const) : undefined,
-          isRunning: gameData.is_running,
+          isRunning: gameData.is_running || false,
         };
 
-        console.log('🎮 设置游戏状态:', gameState);
+        console.log('🎮 设置游戏状态:', {
+          id: gameState.id,
+          phase: gameState.phase,
+          day: gameState.day,
+          isRunning: gameState.isRunning,
+          playerCount: gameState.players.length,
+          eventCount: gameState.events.length
+        });
+
+        // 确保 gameState 设置成功
         setGameState(gameState);
+
+        // 验证设置是否成功
+        setTimeout(() => {
+          const currentState = useGameStore.getState().gameState;
+          console.log('🔍 验证 gameState 设置:', {
+            hasState: !!currentState,
+            id: currentState?.id,
+            idMatch: currentState?.id === gameState.id
+          });
+        }, 100);
         setConnectionStatus('connected');
 
         // 记录最后一个事件 ID
@@ -116,7 +150,7 @@ export const usePolling = (roomId: string | null, interval: number = 2000) => {
       }
     })();
 
-    // 快速事件轮询（2秒）- 只获取事件
+    // 快速事件轮询（2秒）- 使用 Zustand 直接更新避免并发问题
     eventIntervalRef.current = setInterval(async () => {
       if (!roomId) return;
 
@@ -129,78 +163,90 @@ export const usePolling = (roomId: string | null, interval: number = 2000) => {
           return; // 没有新事件，跳过更新
         }
 
-        // 从事件数据中推断游戏状态
-        const latestPhaseEvent = eventsData
-          .filter((e: any) => e.type === 'phase_change' || e.type === 'game_start' || e.type === 'game_end')
-          .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())[0];
+        console.log('📝 发现新事件，数量:', eventsData.length);
 
-        const currentPhase = latestPhaseEvent ? convertPhase(latestPhaseEvent.phase) : 'day_discussion';
-        const currentDay = Math.max(...eventsData.map((e: any) => e.day_count), 1);
-        const hasGameEndEvent = eventsData.some((e: any) => e.type === 'game_end');
+        // 转换事件数据
+        const newEvents = eventsData.map((e: any): GameEvent => ({
+          id: e.id,
+          timestamp: e.timestamp,
+          day: e.day_count,
+          phase: convertPhase(e.phase),
+          category: convertEventType(e.type || e.event_type),
+          content: e.content,
+          actorId: e.actor_id,
+          actorName: e.actor_name,
+          targetId: e.target_id,
+          targetName: e.target_name,
+        }));
 
-        // 更新事件和状态
-        setGameState((prevState: GameState| null) => {
-          if (!prevState) return prevState;
-          return {
-            ...prevState,
-            day: currentDay,
-            phase: currentPhase,
-            isRunning: !hasGameEndEvent,
-            events: eventsData.map((e: any): GameEvent => ({
-              id: e.id,
-              timestamp: e.timestamp,
-              day: e.day_count,
-              phase: convertPhase(e.phase),
-              category: convertEventType(e.type || e.event_type),
-              content: e.content,
-              actorId: e.actor_id,
-              actorName: e.actor_name,
-              targetId: e.target_id,
-              targetName: e.target_name,
-            }))
-          };
-        });
+        // 使用 Zustand 的直接状态更新，避免 React 并发问题
+        const { addEvents, updateGameState } = useGameStore.getState();
+
+        if (newEvents.length > 0) {
+          // 先添加新事件
+          addEvents(newEvents);
+          console.log('✅ 添加了', newEvents.length, '个新事件');
+
+          // 统计 WEREWOLF_DISCUSS 事件
+          const werewolfDiscussEvents = newEvents.filter(e =>
+            e.category === 'ACTION' && e.content.includes('建议击杀')
+          );
+          if (werewolfDiscussEvents.length > 0) {
+            console.log('🐺 发现狼人建议事件:', werewolfDiscussEvents.length, '个');
+          }
+        }
 
         lastEventIdRef.current = latestEventId;
       } catch (err) {
-        console.warn('事件轮询失败:', err);
+        console.error('❌ 事件轮询失败:', err);
+        // 不要重置 gameState，只是记录错误
       }
     }, interval);
 
-    // 低频率完整状态更新（30秒）- 获取玩家信息等
-    stateIntervalRef.current = setInterval(async () => {
-      if (!roomId) return;
+    // 低频率完整状态更新（30秒）- 暂时禁用来排除问题
+    // stateIntervalRef.current = setInterval(async () => {
+    //   if (!roomId) return;
 
-      try {
-        const gameData = await getFullGameData(roomId);
-        setGameState((prevState: GameState| null) => {
-          if (!prevState) return prevState;
-          return {
-            ...prevState,
-            id: gameData.session_id,
-            roomId: gameData.room_id,
-            players: gameData.players.map((p: any): Player => ({
-              id: p.id,
-              name: p.name,
-              position: p.position,
-              role: p.role,
-              status: p.status === 'alive' ? 'alive' : 'dead',
-              isSheriff: p.is_sheriff,
-              votingWeight: p.voting_weight,
-              abilities: p.role_abilities ? {
-                witchHasAntidote: p.role_abilities.witch_has_antidote,
-                witchHasPoison: p.role_abilities.witch_has_poison,
-                hunterCanShoot: p.role_abilities.hunter_can_shoot,
-              } : undefined,
-            })),
-            winner: gameData.winner ? (gameData.winner === 'werewolf' ? 'werewolf' : 'villager' as const) : undefined,
-          };
-        });
-        setConnectionStatus('connected');
-      } catch (err) {
-        console.warn('状态更新失败:', err);
-      }
-    }, 30000);
+    //   try {
+    //     const gameData = await getFullGameData(roomId);
+    //     console.log('🔄 状态更新轮询，获取到的数据:', {
+    //       id: gameData.id,
+    //       phase: gameData.current_phase,
+    //       playerCount: gameData.players?.length
+    //     });
+
+    //     setGameState((prevState: GameState| null) => {
+    //       if (!prevState) {
+    //         console.log('⚠️ 状态更新轮询：prevState 为 null，跳过');
+    //         return null;
+    //       }
+    //       return {
+    //         ...prevState,
+    //         id: gameData.id,
+    //         roomId: gameData.room_id,
+    //         players: gameData.players.map((p: any): Player => ({
+    //           id: p.id,
+    //           name: p.name,
+    //           position: p.position,
+    //           role: p.role,
+    //           status: p.status === 'alive' ? 'alive' : 'dead',
+    //           isSheriff: p.is_sheriff,
+    //           votingWeight: p.voting_weight,
+    //           abilities: p.role_abilities ? {
+    //             witchHasAntidote: p.role_abilities.witch_has_antidote,
+    //             witchHasPoison: p.role_abilities.witch_has_poison,
+    //             hunterCanShoot: p.role_abilities.hunter_can_shoot,
+    //           } : undefined,
+    //         })),
+    //         winner: gameData.winner ? (gameData.winner === 'werewolf' ? 'werewolf' : 'villager' as const) : undefined,
+    //       };
+    //     });
+    //     setConnectionStatus('connected');
+    //   } catch (err) {
+    //     console.error('❌ 状态更新失败:', err);
+    //     // 不要重置 gameState，只是记录错误
+    //   }
+    // }, 30000);
 
     console.log(`✅ 轮询已启动: 事件 ${interval}ms, 状态 30s`);
   }, [interval, roomId]);
@@ -224,13 +270,9 @@ export const usePolling = (roomId: string | null, interval: number = 2000) => {
     return () => {
       stopPolling();
 
-      // 只有在页面真正卸载时才清理游戏
-      if (roomId && !isActiveRef.current) {
-        console.log('页面卸载，清理游戏资源:', roomId);
-        cleanupGame(roomId, true).catch(error => {
-          console.warn('清理游戏资源失败:', error);
-        });
-      }
+      // 注意：不要在这里自动清理游戏资源
+      // 让用户手动通过"退出房间"按钮来清理
+      console.log('🛑 轮询清理完成');
     };
   }, [roomId, startPolling, stopPolling]);
 

@@ -300,7 +300,8 @@ class BaseGameAgent(ABC):
     "confidence": 0.8,
     "strategic_analysis": "战略分析"
 }}
-如果target为空，则表示不选择目标，如弃票，不使用解药等
+如果target为空，则表示不选择目标，如弃票，不使用解药，不开枪。
+狼人discussion必须选择击杀目标，target不能为空。
 请确保你的决策符合你的身份特点和当前局势。
 """
         return prompt
