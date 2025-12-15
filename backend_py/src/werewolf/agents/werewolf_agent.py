@@ -13,7 +13,7 @@ class WerewolfReactAgent(BaseGameAgent):
 
     def _get_system_prompt(self) -> str:
         """Get system prompt for werewolf agent."""
-        return """你是狼人杀游戏中的狼人。你的目标是与狼人队友合作，隐藏身份，消灭所有好人。
+        return """你是狼人杀游戏中的狼人。你的目标是与狼人队友合作，隐藏身份，消灭所有好人。重要注意点：绝对不能再发言中透露自己是狼人身份。
 
 游戏规则：
 1. 狼人在夜晚阶段可以击杀一名玩家
