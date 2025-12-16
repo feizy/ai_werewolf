@@ -43,7 +43,7 @@ class AgentFactory:
                 "provider": mc.provider.value if hasattr(mc.provider, 'value') else mc.provider,
                 "stream": mc.stream,
                 "enable_thinking": mc.enable_thinking,
-                "client_kwargs": mc.client_kwargs
+                "client_args": mc.client_args
             }
 
         try:
@@ -157,7 +157,7 @@ class AgentFactory:
             "provider": mc.provider.value if hasattr(mc.provider, 'value') else mc.provider,
             "stream": mc.stream,
             "enable_thinking": mc.enable_thinking,
-            "client_kwargs": mc.client_kwargs
+            "client_args": mc.client_args
         }
 
     @classmethod
@@ -168,7 +168,7 @@ class AgentFactory:
         - model_name: str (required)
         - api_key: str (required)
         - provider: ModelProvider (default: ANTHROPIC)
-        - client_kwargs: Dict (for base_url, etc.)
+        - client_args: Dict (for base_url, etc.)
         """
         # Handle ModelConfig dataclass
         if hasattr(model_config, '__dataclass_fields__'):
@@ -177,7 +177,7 @@ class AgentFactory:
                 "model_name": model_config.model_name,
                 "api_key": model_config.api_key,
                 "stream": model_config.stream,
-                "client_kwargs": model_config.client_kwargs,
+                "client_args": model_config.client_args,
             }
             model_config = config_dict
 
@@ -193,23 +193,23 @@ class AgentFactory:
         model_name = model_config.get("model_name", "glm-4")
         stream = model_config.get("stream", False)
         enable_thinking = model_config.get("enable_thinking", False)
-        client_kwargs = model_config.get("client_kwargs", {})
+        client_args = model_config.get("client_args", {})
 
         logger.info(f"Creating model: provider={provider}, model={model_name}")
 
         # Create model based on provider
         if provider == ModelProvider.ANTHROPIC:
             # AnthropicChatModel for Claude / 智谱 GLM (Anthropic-compatible API)
-            model = AnthropicChatModel(model_name, api_key=api_key, stream=stream)
+            model = AnthropicChatModel(model_name, api_key=api_key, stream=stream, client_args=client_args)
         elif provider == ModelProvider.OPENAI:
             # OpenAIChatModel for GPT / vLLM / compatible endpoints
-            model = OpenAIChatModel(model_name, api_key=api_key, stream=stream, enable_thinking=enable_thinking, client_kwargs=client_kwargs)
+            model = OpenAIChatModel(model_name, api_key=api_key, stream=stream, client_args=client_args)
         elif provider == ModelProvider.DASHSCOPE:
             # DashScopeChatModel for Qwen (阿里通义)
-            model = DashScopeChatModel(model_name, api_key=api_key, stream=stream, enable_thinking=enable_thinking)
+            model = DashScopeChatModel(model_name, api_key=api_key, stream=stream)
         else:
             raise ValueError(f"Unsupported model provider: {provider}")
-
+        logger.info(f"Created model: provider={provider}, model={model_name}, client_args={client_args}")
         return model
 
     @classmethod

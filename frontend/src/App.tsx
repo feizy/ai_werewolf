@@ -13,9 +13,9 @@ import { LLMConfig } from './types/game';
 
 // Provider options for room creation
 const PROVIDER_OPTIONS = [
-  { value: 'anthropic', label: 'Anthropic (Claude)', icon: '🤖' },
-  { value: 'openai', label: 'OpenAI (GPT)', icon: '🧠' },
-  { value: 'dashscope', label: 'DashScope (Qwen)', icon: '🦉' },
+  { value: 'anthropic', label: 'Anthropic格式API', icon: '🤖' },
+  { value: 'openai', label: 'OpenAI格式API', icon: '🧠' },
+  { value: 'dashscope', label: 'DashScope', icon: '🦉' },
 ] as const;
 
 const MODEL_PRESETS = {
@@ -654,22 +654,7 @@ const App: React.FC = () => {
             </>
           )}
 
-          {/* 提示 */}
-          <p style={{ 
-            marginTop: '24px', 
-            fontSize: '13px', 
-            color: '#64748b',
-            lineHeight: 1.6,
-          }}>
-            💡 先在后端运行 <code style={{ 
-              background: '#1e293b', 
-              padding: '2px 6px', 
-              borderRadius: '4px',
-              fontSize: '12px',
-            }}>python start_game.py</code> 创建游戏，<br/>
-            然后输入返回的房间 ID 连接观战
-          </p>
-
+          
           {/* 加载状态 */}
           {roomId && !gameState && (
             <div style={{ marginTop: '24px' }}>

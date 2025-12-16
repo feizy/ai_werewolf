@@ -60,8 +60,8 @@ class ModelConfig:
     """Model configuration for AgentScope.
     
     Compatible with AgentScope model initialization:
-    - AnthropicChatModel(model_name, api_key=..., client_kwargs=...)
-    - OpenAIChatModel(model_name, api_key=..., client_kwargs=...)
+    - AnthropicChatModel(model_name, api_key=..., client_args=...)
+    - OpenAIChatModel(model_name, api_key=..., client_args=...)
     - DashScopeChatModel(model_name, api_key=...)
     """
     # Required fields (no default) must come first
@@ -71,7 +71,7 @@ class ModelConfig:
     provider: ModelProvider = ModelProvider.ANTHROPIC
     stream: bool = False
     enable_thinking: bool = False
-    client_kwargs: Dict[str, Any] = field(default_factory=dict)  # For base_url etc.
+    client_args: Dict[str, Any] = field(default_factory=dict)  # For base_url etc.
 
 @dataclass
 class AIConfig:
@@ -319,7 +319,7 @@ class Player:
                 provider=ModelProvider(model_config.get("provider", "anthropic")),
                 stream=model_config.get("stream", False),
                 enable_thinking=model_config.get("enable_thinking", False),
-                client_kwargs=model_config.get("client_kwargs", {})
+                client_args=model_config.get("client_args", {})
             )
 
         # Build ai_config
