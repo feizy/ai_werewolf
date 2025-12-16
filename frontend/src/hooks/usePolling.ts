@@ -85,7 +85,7 @@ export const usePolling = (roomId: string | null, interval: number = 2000) => {
           id: gameData.id || 'unknown',  // 修复：应该是 id 而不是 session_id
           roomId: gameData.room_id || roomId,
           day: gameData.day_count || 1,
-          phase: gameData.current_phase === 'running' ? 'day_discussion' : convertPhase(gameData.current_phase || 'day_discussion'),
+          phase: convertPhase(gameData.current_phase || 'day_discussion'),
           players: (gameData.players || []).map((p: any): Player => ({
             id: p.id || 'unknown',
             name: p.name || 'Unknown',

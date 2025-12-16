@@ -370,18 +370,42 @@ class AIGameEngine:
                     # Save the werewolf target
                     if werewolf_target:
                         await self._execute_witch_save(agent.player_id, werewolf_target)
+                        await self.event_service.record_event(
+                            session_id=self.session.id,
+                            event_type=EventType.WITCH_SAVE,
+                            content=f"女巫使用解药救活了{werewolf_target['player_name']}.内心活动：{action.reasoning}",
+                            actor_id=agent.player_id,
+                            target_id=werewolf_target['player_id'],
+                            actor_name=agent.name,
+                            target_name=werewolf_target['player_name'],
+                            phase=GamePhase.NIGHT,
+                            day_number=self.day_count,
+                            data={"action": "save"}
+                        )
                 elif action.action_type == "witch_poison" and action.target and game_state.known_info.get("has_poison"):
                     # Poison someone - delegate to execution method
                     target_player = self._get_player_by_id(action.target)
                     if target_player:
                         await self._execute_witch_poison(agent.player_id, target_player.id)
+                        await self.event_service.record_event(
+                            session_id=self.session.id,
+                            event_type=EventType.WITCH_POISON,
+                            content=f"女巫使用毒药击杀了{target_player.name}.内心活动：{action.reasoning}",
+                            actor_id=agent.player_id,
+                            target_id=target_player.id,
+                            actor_name=agent.name,
+                            target_name=target_player.name,
+                            phase=GamePhase.NIGHT,
+                            day_number=self.day_count,
+                            data={"action": "poison"}
+                        )
                 else:
                     # logger.info(f"🧪 女巫选择不使用药水")
                     print(f"[女巫] 女巫选择不使用药水")
                     await self.event_service.record_event(
                         session_id=self.session.id,
                         event_type=EventType.WITCH_SAVE,
-                        content=f"女巫选择不使用药水",
+                        content=f"女巫选择不使用药水.内心活动：{action.reasoning}",
                         phase=GamePhase.NIGHT,
                         day_number=self.day_count,
                         actor_id=agent.player_id,
@@ -703,17 +727,7 @@ class AIGameEngine:
             "使用解药拯救"
         )
 
-        # Record save event
-        await self.event_service.record_event(
-            session_id=self.session.id,
-            event_type=EventType.WITCH_SAVE,
-            content=f"女巫使用解药拯救了{target_name}",
-            actor_id=witch_id,
-            target_id=werewolf_target['player_id'],
-            phase=GamePhase.NIGHT,
-            day_number=self.day_count,
-            data={"action": "save"}
-        )
+        
 
     async def _execute_witch_poison(self, witch_id: str, target_id: str) -> None:
         """Execute witch poison action."""
@@ -742,17 +756,7 @@ class AIGameEngine:
                 "使用毒药击杀"
             )
 
-            # Record poison event
-            # await self.event_service.record_event(
-            #     session_id=self.session.id,
-            #     event_type=EventType.WITCH_POISON,
-            #     content=f"女巫使用毒药击杀了{target_player.name}",
-            #     actor_id=witch_id,
-            #     target_id=target_id,
-            #     phase=GamePhase.NIGHT,
-            #     day_number=self.day_count,
-            #     data={"action": "poison"}
-            # )
+           
 
     async def _execute_hunter_shot(self, hunter_id: str, target_id: str) -> None:
         """Execute hunter shot action."""

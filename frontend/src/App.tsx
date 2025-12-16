@@ -140,7 +140,7 @@ const App: React.FC = () => {
             id: gameData.session_id,
             roomId: gameData.room_id,
             day: gameData.day_count,
-            phase: gameData.current_phase === 'running' ? 'day_discussion' : convertPhase(gameData.current_phase),
+            phase: convertPhase(gameData.current_phase),
             players: gameData.players.map((p: any): Player => ({
               id: p.id,
               name: p.name,
