@@ -87,7 +87,6 @@ def start_game():
                     "api_key": api_key,
                     "provider": "anthropic",  # anthropic / openai / dashscope
                     "stream": False,
-                    "enable_thinking": False,
                     "client_args": {"base_url": "https://open.bigmodel.cn/api/anthropic"}  # 可选: {"base_url": "https://custom-endpoint"}
                 }
             }

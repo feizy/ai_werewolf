@@ -10,16 +10,10 @@ interface PlayerConfigModalProps {
 }
 
 const PROVIDER_OPTIONS = [
-  { value: 'anthropic', label: 'Anthropic (Claude)', icon: '🤖' },
-  { value: 'openai', label: 'OpenAI (GPT)', icon: '🧠' },
-  { value: 'dashscope', label: 'DashScope (Qwen)', icon: '🦉' },
+  { value: 'anthropic', label: 'Anthropic格式API', icon: '🤖' },
+  { value: 'openai', label: 'OpenAI格式API', icon: '🧠' },
+  { value: 'dashscope', label: 'DashScope', icon: '🦉' },
 ] as const;
-
-const MODEL_PRESETS = {
-  anthropic: ['glm-4', 'glm-4.6', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307'],
-  openai: ['gpt-4', 'gpt-4-turbo', 'gpt-3.5-turbo'],
-  dashscope: ['qwen-max', 'qwen-plus', 'qwen-turbo'],
-};
 
 export const PlayerConfigModal: React.FC<PlayerConfigModalProps> = ({
   isOpen,
@@ -29,16 +23,18 @@ export const PlayerConfigModal: React.FC<PlayerConfigModalProps> = ({
 }) => {
   const [playerName, setPlayerName] = useState('');
   const [provider, setProvider] = useState<'anthropic' | 'openai' | 'dashscope'>('anthropic');
-  const [modelName, setModelName] = useState('glm-4');
+  const [modelName, setModelName] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [apiBaseUrl, setApiBaseUrl] = useState('');
   const [temperature, setTemperature] = useState(0.7);
   const [stream, setStream] = useState(false);
   const [enableThinking, setEnableThinking] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!playerName.trim() || !apiKey.trim()) return;
+    if (!playerName.trim() || !apiKey.trim() || !modelName.trim()) return;
 
+    // 构建LLM配置
     const llmConfig: LLMConfig = {
       provider,
       modelName,
@@ -46,15 +42,20 @@ export const PlayerConfigModal: React.FC<PlayerConfigModalProps> = ({
       temperature,
       stream,
       enableThinking,
-      clientKwargs: {},
+      clientKwargs: {}  // 初始化为空对象
     };
+
+    // 只有在apiBaseUrl不为空时才添加client_kwargs
+    if (apiBaseUrl && apiBaseUrl.trim()) {
+      llmConfig.clientKwargs.base_url = apiBaseUrl.trim();
+    }
 
     onConfirm(playerName.trim(), llmConfig);
   };
 
   const handleProviderChange = (newProvider: typeof provider) => {
     setProvider(newProvider);
-    setModelName(MODEL_PRESETS[newProvider][0]);
+    setModelName(''); // 清空模型名称，让用户自己输入
   };
 
   return (
@@ -88,7 +89,7 @@ export const PlayerConfigModal: React.FC<PlayerConfigModalProps> = ({
             exit={{ scale: 0.8, opacity: 0, y: 20 }}
             style={{
               position: 'fixed',
-              top: '50%',
+              top: '40%',
               left: '50%',
               transform: 'translate(-50%, -50%)',
               background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
@@ -96,8 +97,8 @@ export const PlayerConfigModal: React.FC<PlayerConfigModalProps> = ({
               padding: '32px',
               width: '500px',
               maxWidth: '90vw',
-              maxHeight: '90vh',
-              overflow: 'auto',
+              maxHeight: '85vh',
+              overflowY: 'auto',
               zIndex: 1001,
               border: '1px solid #334155',
               boxShadow: '0 25px 50px rgba(0, 0, 0, 0.5)',
@@ -217,9 +218,11 @@ export const PlayerConfigModal: React.FC<PlayerConfigModalProps> = ({
                 }}>
                   模型名称 *
                 </label>
-                <select
+                <input
+                  type="text"
                   value={modelName}
                   onChange={(e) => setModelName(e.target.value)}
+                  placeholder="模型名称 (如: gpt-4, claude-3-sonnet-20240229)"
                   style={{
                     width: '100%',
                     padding: '12px 16px',
@@ -230,13 +233,9 @@ export const PlayerConfigModal: React.FC<PlayerConfigModalProps> = ({
                     fontSize: '14px',
                     outline: 'none',
                   }}
-                >
-                  {MODEL_PRESETS[provider].map((model) => (
-                    <option key={model} value={model}>
-                      {model}
-                    </option>
-                  ))}
-                </select>
+                  onFocus={(e) => e.target.style.borderColor = '#6366f1'}
+                  onBlur={(e) => e.target.style.borderColor = '#334155'}
+                />
               </div>
 
               {/* API Key */}
@@ -256,6 +255,38 @@ export const PlayerConfigModal: React.FC<PlayerConfigModalProps> = ({
                   onChange={(e) => setApiKey(e.target.value)}
                   placeholder="输入API密钥"
                   required
+                  style={{
+                    width: '100%',
+                    padding: '12px 16px',
+                    borderRadius: '8px',
+                    border: '2px solid #334155',
+                    background: '#0f172a',
+                    color: '#f1f5f9',
+                    fontSize: '14px',
+                    outline: 'none',
+                    fontFamily: 'monospace',
+                  }}
+                  onFocus={(e) => e.target.style.borderColor = '#6366f1'}
+                  onBlur={(e) => e.target.style.borderColor = '#334155'}
+                />
+              </div>
+
+              {/* API Base URL */}
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{
+                  display: 'block',
+                  marginBottom: '6px',
+                  color: '#f1f5f9',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                }}>
+                  API Base URL (可选)
+                </label>
+                <input
+                  type="url"
+                  value={apiBaseUrl}
+                  onChange={(e) => setApiBaseUrl(e.target.value)}
+                  placeholder="API Base URL (如: https://api.openai.com/v1)"
                   style={{
                     width: '100%',
                     padding: '12px 16px',

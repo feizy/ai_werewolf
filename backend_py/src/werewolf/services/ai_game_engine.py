@@ -799,14 +799,7 @@ class AIGameEngine:
             if self.session.night_actions.witch_save:
                 logger.info(f"🧪 女巫使用解药救活了 {target_name}")
                 print(f"[女巫解药] {target_name} 被救活")
-                await self.event_service.record_event(
-                    session_id=self.session.id,
-                    event_type=EventType.WITCH_SAVE,
-                    content=f"女巫使用解药救活了 {target_name}",
-                    phase=GamePhase.NIGHT,
-                    day_number=self.day_count,
-                    target_id=target_id,
-                    target_name=target_name)
+                
             else:
                 await self._eliminate_player(target_id, "狼人击杀")
                 night_deaths.append({
@@ -933,7 +926,18 @@ class AIGameEngine:
                             await self.event_service.record_event(
                                 session_id=self.session.id,
                                 event_type=EventType.SHERIFF_CANDIDACY,
-                                content=f"{player.name} 参与竞选警长",
+                                content=f"{player.name} 决定参与竞选警长",
+                                phase=GamePhase.SHERIFF_ELECTION,
+                                day_number=self.day_count,
+                                actor_id=player.id,
+                                actor_name=player.name)
+                        else:
+                            logger.info(f"🎖️ {player.name} 决定不参与竞选警长")
+                            print(f"[竞选] {player.name} 决定不参与竞选警长")
+                            await self.event_service.record_event(
+                                session_id=self.session.id,
+                                event_type=EventType.SHERIFF_CANDIDACY,
+                                content=f"{player.name} 决定不参与竞选警长",
                                 phase=GamePhase.SHERIFF_ELECTION,
                                 day_number=self.day_count,
                                 actor_id=player.id,
@@ -1003,7 +1007,7 @@ class AIGameEngine:
                             await self.event_service.record_event(
                                 session_id=self.session.id,
                                 event_type=EventType.PLAYER_VOTE,
-                                content=f"{voter.name} 投票给 {target_player.name}",
+                                content=f"{voter.name} 投票给 {target_player.name}。内心活动：{action.reasoning}",
                                 phase=GamePhase.VOTING,
                                 day_number=self.day_count,
                                 actor_id=voter.id,

@@ -55,16 +55,21 @@ export async function listRooms(): Promise<RoomInfo[]> {
 }
 
 // 创建房间
-export async function createRoom(name: string, maxPlayers: number, llmConfig: any): Promise<{ room_id: string; room_name: string; current_players: number; max_players: number; status: string }> {
-  // 转换前端字段名到后端期望的格式
-  const backendLLMConfig = {
+export async function createRoom(name: string, maxPlayers: number, llmConfig: any, apiBaseUrl?: string): Promise<{ room_id: string; room_name: string; current_players: number; max_players: number; status: string }> {
+  // 构建后端期望的 llm_config 格式（所有配置都在这里）
+  let backendLlmConfig: any = {
     model_name: llmConfig.modelName,
     api_key: llmConfig.apiKey,
     provider: llmConfig.provider,
     stream: llmConfig.stream || false,
-    enable_thinking: llmConfig.enableThinking || false,
-    client_kwargs: llmConfig.clientKwargs || {},
   };
+
+  // 只有在base_url不为空时才添加client_args
+  if (apiBaseUrl && apiBaseUrl.trim()) {
+    backendLlmConfig.client_args = {
+      base_url: apiBaseUrl.trim()
+    };
+  }
 
   const response = await fetch(`${API_BASE}/rooms`, {
     method: 'POST',
@@ -72,7 +77,7 @@ export async function createRoom(name: string, maxPlayers: number, llmConfig: an
     body: JSON.stringify({
       room_name: name,
       max_players: maxPlayers,
-      llm_config: backendLLMConfig
+      llm_config: backendLlmConfig
     }),
   });
   if (!response.ok) {
@@ -83,17 +88,25 @@ export async function createRoom(name: string, maxPlayers: number, llmConfig: an
 }
 
 // 添加玩家到房间
-export async function joinRoom(roomId: string, playerName: string, aiConfig?: any, modelConfig?: any): Promise<RoomInfo> {
-  // 转换前端字段名到后端期望的格式
-  let backendModelConfig;
-  if (modelConfig) {
-    backendModelConfig = {
-      model_name: modelConfig.modelName,
-      api_key: modelConfig.apiKey,
-      provider: modelConfig.provider,
-      stream: modelConfig.stream || false,
-      enable_thinking: modelConfig.enableThinking || false,
-      client_kwargs: modelConfig.clientKwargs || {},
+export async function joinRoom(roomId: string, playerName: string, aiConfig?: any, modelConfig?: any, apiBaseUrl?: string): Promise<RoomInfo> {
+  // 构建ai_config（简化的AI配置）
+  const backendAiConfig = {
+    language: "zh"
+  };
+
+  // 构建model_configuration（包含所有LLM配置）
+  let backendModelConfig: any = {
+    model_name: modelConfig?.modelName,
+    api_key: modelConfig?.apiKey,
+    provider: modelConfig?.provider,
+    stream: modelConfig?.stream || false,
+    enable_thinking: modelConfig?.enableThinking || false,
+  };
+
+  // 只有在base_url不为空时才添加client_args
+  if (apiBaseUrl && apiBaseUrl.trim()) {
+    backendModelConfig.client_args = {
+      base_url: apiBaseUrl.trim()
     };
   }
 
@@ -103,7 +116,7 @@ export async function joinRoom(roomId: string, playerName: string, aiConfig?: an
     body: JSON.stringify({
       room_id: roomId,
       player_name: playerName,
-      ai_config: aiConfig,
+      ai_config: backendAiConfig,
       model_configuration: backendModelConfig
     }),
   });

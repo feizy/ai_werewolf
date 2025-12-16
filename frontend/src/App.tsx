@@ -18,12 +18,6 @@ const PROVIDER_OPTIONS = [
   { value: 'dashscope', label: 'DashScope', icon: '🦉' },
 ] as const;
 
-const MODEL_PRESETS = {
-  anthropic: ['glm-4', 'glm-4.6', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240307'],
-  openai: ['gpt-4', 'gpt-4-turbo', 'gpt-3.5-turbo'],
-  dashscope: ['qwen-max', 'qwen-plus', 'qwen-turbo'],
-};
-
 const App: React.FC = () => {
   const [roomId, setRoomId] = useState<string>('');
   const [inputRoomId, setInputRoomId] = useState<string>('');
@@ -33,8 +27,9 @@ const App: React.FC = () => {
   const [roomName, setRoomName] = useState<string>('');
   const [maxPlayers, setMaxPlayers] = useState<number>(9);
   const [defaultProvider, setDefaultProvider] = useState<'anthropic' | 'openai' | 'dashscope'>('anthropic');
-  const [defaultModelName, setDefaultModelName] = useState<string>('glm-4');
+  const [defaultModelName, setDefaultModelName] = useState<string>('');
   const [defaultApiKey, setDefaultApiKey] = useState<string>('');
+  const [defaultApiBaseUrl, setDefaultApiBaseUrl] = useState<string>('');
 
   const defaultLLMConfig: LLMConfig = {
     provider: defaultProvider,
@@ -206,14 +201,14 @@ const App: React.FC = () => {
 
   const handleProviderChange = (newProvider: typeof defaultProvider) => {
     setDefaultProvider(newProvider);
-    setDefaultModelName(MODEL_PRESETS[newProvider][0]);
+    setDefaultModelName('');
   };
 
   const handleCreateRoom = async () => {
-    if (!roomName.trim() || !defaultApiKey.trim()) return;
+    if (!roomName.trim() || !defaultApiKey.trim() || !defaultModelName.trim()) return;
 
     try {
-      const response = await createRoom(roomName.trim(), maxPlayers, defaultLLMConfig);
+      const response = await createRoom(roomName.trim(), maxPlayers, defaultLLMConfig, defaultApiBaseUrl);
 
       const newRoom = {
         id: response.room_id,
@@ -245,7 +240,9 @@ const App: React.FC = () => {
     if (!room) return;
 
     try {
-      await joinRoom(room.id, name, { language: 'zh' }, llmConfig);
+      // 从llmConfig.clientKwargs中获取base_url
+      const apiBaseUrl = llmConfig.clientKwargs?.base_url || '';
+      await joinRoom(room.id, name, { language: 'zh' }, llmConfig, apiBaseUrl);
       const newPlayer = {
         id: `player-${Date.now()}`,
         name,
@@ -573,8 +570,9 @@ const App: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* 模型选择 */}
-                  <select
+                  <input
+                    type="text"
+                    placeholder="模型名称 (如: gpt-4, claude-3-sonnet-20240229)"
                     value={defaultModelName}
                     onChange={(e) => setDefaultModelName(e.target.value)}
                     style={{
@@ -588,19 +586,37 @@ const App: React.FC = () => {
                       outline: 'none',
                       marginBottom: '12px',
                     }}
-                  >
-                    {MODEL_PRESETS[defaultProvider].map((model) => (
-                      <option key={model} value={model}>
-                        {model}
-                      </option>
-                    ))}
-                  </select>
+                    onFocus={(e) => e.target.style.borderColor = '#6366f1'}
+                    onBlur={(e) => e.target.style.borderColor = '#334155'}
+                  />
 
                   <input
                     type="password"
                     placeholder="API Key"
                     value={defaultApiKey}
                     onChange={(e) => setDefaultApiKey(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '14px 18px',
+                      borderRadius: '10px',
+                      border: '2px solid #334155',
+                      background: '#0f172a',
+                      color: '#f1f5f9',
+                      fontSize: '15px',
+                      outline: 'none',
+                      fontFamily: 'monospace',
+                      marginBottom: '12px',
+                      transition: 'border-color 0.2s',
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = '#6366f1'}
+                    onBlur={(e) => e.target.style.borderColor = '#334155'}
+                  />
+
+                  <input
+                    type="url"
+                    placeholder="API Base URL (可选，如: https://api.openai.com/v1)"
+                    value={defaultApiBaseUrl}
+                    onChange={(e) => setDefaultApiBaseUrl(e.target.value)}
                     style={{
                       width: '100%',
                       padding: '14px 18px',
@@ -621,25 +637,25 @@ const App: React.FC = () => {
 
               <button
                 onClick={handleCreateRoom}
-                disabled={!roomName.trim() || !defaultApiKey.trim() || backendStatus !== 'online'}
+                disabled={!roomName.trim() || !defaultApiKey.trim() || !defaultModelName.trim() || backendStatus !== 'online'}
                 style={{
                   width: '100%',
                   padding: '14px',
                   borderRadius: '10px',
                   border: 'none',
-                  background: (!roomName.trim() || !defaultLLMConfig.apiKey.trim() || backendStatus !== 'online')
+                  background: (!roomName.trim() || !defaultApiKey.trim() || !defaultModelName.trim() || backendStatus !== 'online')
                     ? '#475569'
                     : 'linear-gradient(135deg, #10b981, #059669)',
                   color: '#fff',
                   fontSize: '16px',
                   fontWeight: 600,
-                  cursor: (!roomName.trim() || !defaultLLMConfig.apiKey.trim() || backendStatus !== 'online')
+                  cursor: (!roomName.trim() || !defaultApiKey.trim() || !defaultModelName.trim() || backendStatus !== 'online')
                     ? 'not-allowed'
                     : 'pointer',
                   transition: 'transform 0.2s, box-shadow 0.2s',
                 }}
                 onMouseEnter={(e) => {
-                  if (roomName.trim() && defaultApiKey.trim() && backendStatus === 'online') {
+                  if (roomName.trim() && defaultApiKey.trim() && defaultModelName.trim() && backendStatus === 'online') {
                     e.currentTarget.style.transform = 'translateY(-2px)';
                     e.currentTarget.style.boxShadow = '0 10px 30px rgba(16, 185, 129, 0.4)';
                   }
